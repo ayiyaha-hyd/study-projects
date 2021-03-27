@@ -1,0 +1,9 @@
+# Apache Dubbo配置
+dubbo:
+  application:
+    name: dubbo-provider #服务名
+  registry:
+    address: zookeeper://117.50.3.120:2181 #注册中心地址
+    timeout: 60000 #连接超时设置，由于使用的Zookeeper服务器连接慢，这块需要设置时间长一点，否则会连接失败
+  scan:
+    base-packages: com.hyd.provider.service #开启包扫描，可替代 @EnableDubbo 注解

@@ -1,0 +1,7 @@
+# Apache Dubbo配置
+dubbo:
+  application:
+    name: dubbo-consumer
+  registry:
+    address: zookeeper://117.50.3.120:2181
+    timeout: 60000

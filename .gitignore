@@ -25,3 +25,4 @@ spring-boot-dubbo/.idea/encodings.xml
 *.xml
 *.iml
 spring-boot-dubbo/dubbo-consumer/.gitignore
+spring-boot-eureka/eureka-provider/target/classes/application.yaml

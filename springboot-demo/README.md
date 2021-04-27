@@ -1,8 +1,8 @@
-# `Spring Boot`
+# `Spring Boot`原理解析
 
 ---
 
-依赖管理
+## 依赖管理
 
 父项目进行依赖管理，统一管理版本号，声明了常用的依赖版本，无需指定版本号，如需指定，则重写版本，手动指定版本号
 
@@ -62,7 +62,7 @@
 
 ---
 
-`Spring Boot`注解
+## `Spring Boot`注解
 
 ```java
 @SpringBootApplication//SpringBoot启动类
@@ -94,13 +94,9 @@
 
 
 
-
-
-
-
 ---
 
-自动配置原理：
+## 自动配置原理：
 
 
 
@@ -157,7 +153,7 @@ SpringApplication.run(SpringbootDemoApplication.class, args);
 
 
 
-创建`SpringApplication`，
+### 创建`SpringApplication`
 
 其中`new SpringApplication(primarySources)`创建`SpringApplication`过程中，做了如下操作：
 
@@ -246,7 +242,7 @@ SpringApplication.run(SpringbootDemoApplication.class, args);
 
 到此，创建`SpringApplication`结束，接下来就是运行`SpringApplication`
 
-运行`SpringApplication`
+### 运行`SpringApplication`
 
 ```java
 	public ConfigurableApplicationContext run(String... args) {
@@ -267,41 +263,56 @@ SpringApplication.run(SpringbootDemoApplication.class, args);
 			ApplicationArguments applicationArguments = new DefaultApplicationArguments(args);
             //环境信息
 			ConfigurableEnvironment environment = prepareEnvironment(listeners, bootstrapContext, applicationArguments);
+            //配置需要忽略的Bean信息
 			configureIgnoreBeanInfo(environment);
 			Banner printedBanner = printBanner(environment);
             //创建IOC容器
 			context = createApplicationContext();
             //为IOC容器设置applicationStartup
 			context.setApplicationStartup(this.applicationStartup);
+            //准备IOC容器
 			prepareContext(bootstrapContext, context, environment, listeners, applicationArguments, printedBanner);
-			refreshContext(context);
+			//刷新IOC容器
+            refreshContext(context);
+            //刷新IOC容器后进行的操作
 			afterRefresh(context, applicationArguments);
+            //计时停止
 			stopWatch.stop();
+            //记录
 			if (this.logStartupInfo) {
 				new StartupInfoLogger(this.mainApplicationClass).logStarted(getApplicationLog(), stopWatch);
 			}
+            //向所有监听器发布已启动事件
 			listeners.started(context);
 			callRunners(context, applicationArguments);
 		}
 		catch (Throwable ex) {
+            //处理失败
 			handleRunFailure(context, ex, listeners);
 			throw new IllegalStateException(ex);
 		}
 
 		try {
+            //向所有监听器发布正在运行事件
 			listeners.running(context);
 		}
 		catch (Throwable ex) {
+            //处理失败
 			handleRunFailure(context, ex, null);
 			throw new IllegalStateException(ex);
 		}
+        //返回IOC容器
 		return context;
 	}
 ```
 
 
 
-`stopWatch`记录应用启动时间，用于调试等
+#### 创建java计时器，记录引用的启动时间
+
+`stopWatch`记录应用启动时间，用于调试等`stopWatch.start();`
+
+#### 创建引导上下文
 
 创建引导上下文(`Context`环境)：`DefaultBootstrapContext bootstrapContext = createBootstrapContext();`，获取之前保存的`bootstrappers`引导启动器，遍历执行启动器的`initialize`方法，完成对引导启动器的上下文环境设置
 
@@ -315,7 +326,9 @@ SpringApplication.run(SpringbootDemoApplication.class, args);
 
 
 
-设置`headless`模式。
+#### 设置headless模式
+
+设置`headless`模式 `configureHeadlessProperty();`
 
 1. 什么是 java.awt.headless？
 Headless模式是系统的一种配置模式。在系统可能缺少显示设备、键盘或鼠标这些外设的情况下可以使用该模式。
@@ -338,6 +351,8 @@ Headless模式虽然不是我们愿意见到的，但事实上我们却常常需
 
 
 
+#### 获取应用运行监听器
+
 从配置文件中读取配置`org.springframework.boot.context.event.EventPublishingRunListener`，实例化应用运行监听器，为接下来进行事件感知做准备
 
 ```java
@@ -356,6 +371,8 @@ SpringApplicationRunListeners listeners = getRunListeners(args);
 ```
 
 
+
+#### 通知所有监听器正在启动事件
 
 所有应用运行监听器执行starting方法，`listeners.starting(bootstrapContext, this.mainApplicationClass);`，通知系统正在启动。
 
@@ -381,9 +398,13 @@ public interface SpringApplicationRunListener {
 
 
 
+#### 获取命令行参数信息
+
 保存命令行参数`ApplicationArguments applicationArguments = new DefaultApplicationArguments(args);`
 
 
+
+#### 准备环境信息
 
 准备环境信息`ConfigurableEnvironment environment = prepareEnvironment(listeners, bootstrapContext, applicationArguments);`
 
@@ -473,6 +494,14 @@ public interface SpringApplicationRunListener {
 
 
 
+#### 配置需要忽略的Bean信息
+
+配置需要忽略的Bean信息`configureIgnoreBeanInfo(environment);`
+
+
+
+#### 创建应用上下文
+
 创建`IOC`容器`context = createApplicationContext();`
 
 ```java
@@ -504,12 +533,14 @@ public interface SpringApplicationRunListener {
 
 
 
-
+#### 设置应用上下文启动属性
 
 为IOC容器设置`applicationStartup`
 `context.setApplicationStartup(this.applicationStartup);`
 
 
+
+#### 准备上下文
 
 准备IOC容器上下文`prepareContext(bootstrapContext, context, environment, listeners, applicationArguments, printedBanner);`
 
@@ -552,6 +583,7 @@ public interface SpringApplicationRunListener {
 		Assert.notEmpty(sources, "Sources must not be empty");
         //将bean加载到IOC容器(应用程序上下文)中
 		load(context, sources.toArray(new Object[0]));
+        //向各个监听器发送容器加载完成的事件
 		listeners.contextLoaded(context);
 	}
 ```
@@ -674,6 +706,8 @@ BeanDefinitionRegistry定义了很重要的方法registerBeanDefinition()，该�
 ```
 
 
+
+判断需要通过什么方式加载
 
 ```java
 	private void load(Object source) {
@@ -838,9 +872,357 @@ BeanDefinitionRegistry定义了很重要的方法registerBeanDefinition()，该�
 
 
 
-
-
-
-
 发布容器已加载事件`listeners.contextLoaded(context);`
+
+```java
+	void contextLoaded(ConfigurableApplicationContext context) {
+		doWithListeners("spring.boot.application.context-loaded", (listener) -> listener.contextLoaded(context));
+	}
+```
+
+
+
+
+
+接下来是SpringBoot应用启动最重要的一步
+
+#### 刷新上下文
+
+刷新IOC容器 `refreshContext(context);`
+
+```java
+	private void refreshContext(ConfigurableApplicationContext context) {
+		if (this.registerShutdownHook) {
+			try {
+                //注册一个关闭钩子
+				context.registerShutdownHook();
+			}
+			catch (AccessControlException ex) {
+				// Not allowed in some environments.
+			}
+		}
+        //刷新IOC容器
+		refresh((ApplicationContext) context);
+	}
+```
+
+执行
+
+```java
+	protected void refresh(ApplicationContext applicationContext) {
+		Assert.isInstanceOf(ConfigurableApplicationContext.class, applicationContext);
+		refresh((ConfigurableApplicationContext) applicationContext);
+	}
+```
+
+执行
+
+```java
+	protected void refresh(ConfigurableApplicationContext applicationContext) {
+		applicationContext.refresh();
+	}
+```
+
+执行
+
+```java
+	public final void refresh() throws BeansException, IllegalStateException {
+		try {
+            //执行父类的refresh方法
+			super.refresh();
+		}
+		catch (RuntimeException ex) {
+			WebServer webServer = this.webServer;
+			if (webServer != null) {
+				webServer.stop();
+			}
+			throw ex;
+		}
+	}
+```
+
+执行以下过程，创建容器中所有的组件，此为核心过程：
+
+```java
+	public void refresh() throws BeansException, IllegalStateException {
+		synchronized (this.startupShutdownMonitor) {
+			StartupStep contextRefresh = this.applicationStartup.start("spring.context.refresh");
+
+			// Prepare this context for refreshing.
+            //为上下文环境刷新做准备
+			prepareRefresh();
+
+			// Tell the subclass to refresh the internal bean factory.
+            //告诉子类刷新内部bean工厂
+			ConfigurableListableBeanFactory beanFactory = obtainFreshBeanFactory();
+
+			// Prepare the bean factory for use in this context.
+            //为当前上下文环境准备需要用到的Bean工厂
+			prepareBeanFactory(beanFactory);
+
+			try {
+				// Allows post-processing of the bean factory in context subclasses.
+                //设置 beanFactory 的后置处理
+				postProcessBeanFactory(beanFactory);
+                
+                //开始执行Bean的后置处理
+				StartupStep beanPostProcess = this.applicationStartup.start("spring.context.beans.post-process");
+				// Invoke factory processors registered as beans in the context.
+                //调用 BeanFactory 的后置处理器，这些处理器是在Bean 定义中向容器注册的
+				invokeBeanFactoryPostProcessors(beanFactory);
+
+				// Register bean processors that intercept bean creation.
+                //注册Bean的后置处理器，在Bean创建过程中调用
+				registerBeanPostProcessors(beanFactory);
+                
+                //结束Bean的后置处理
+				beanPostProcess.end();
+
+				// Initialize message source for this context.
+                //对上下文中的消息源进行初始化
+				initMessageSource();
+
+				// Initialize event multicaster for this context.
+                //初始化上下文中的事件机制
+				initApplicationEventMulticaster();
+
+				// Initialize other special beans in specific context subclasses.
+                //初始化其他特殊的Bean
+				onRefresh();
+
+				// Check for listener beans and register them.
+                //检查监听Bean并且将这些监听Bean向容器注册
+				registerListeners();
+
+				// Instantiate all remaining (non-lazy-init) singletons.
+                //实例化所有的（non-lazy-init）单实例
+				finishBeanFactoryInitialization(beanFactory);
+
+				// Last step: publish corresponding event.
+                //发布容器事件，结束Refresh过程
+				finishRefresh();
+			}
+
+			catch (BeansException ex) {
+				if (logger.isWarnEnabled()) {
+					logger.warn("Exception encountered during context initialization - " +
+							"cancelling refresh attempt: " + ex);
+				}
+
+				// Destroy already created singletons to avoid dangling resources.
+				destroyBeans();
+
+				// Reset 'active' flag.
+				cancelRefresh(ex);
+
+				// Propagate exception to caller.
+				throw ex;
+			}
+
+			finally {
+				// Reset common introspection caches in Spring's core, since we
+				// might not ever need metadata for singleton beans anymore...
+				resetCommonCaches();
+				contextRefresh.end();
+			}
+		}
+	}
+```
+
+
+
+执行`prepareRefresh()`
+
+```java
+prepareRefresh();
+```
+
+
+
+```java
+	protected void prepareRefresh() {
+        //清除本地元数据缓存
+		this.scanner.clearCache();
+        //调用父类方法
+		super.prepareRefresh();
+	}
+```
+
+
+
+```java
+	protected void prepareRefresh() {
+		// Switch to active.
+		this.startupDate = System.currentTimeMillis();
+		this.closed.set(false);
+		this.active.set(true);
+
+		if (logger.isDebugEnabled()) {
+			if (logger.isTraceEnabled()) {
+				logger.trace("Refreshing " + this);
+			}
+			else {
+				logger.debug("Refreshing " + getDisplayName());
+			}
+		}
+
+		// Initialize any placeholder property sources in the context environment.
+        //留给子类覆盖，初始化属性资源
+		initPropertySources();
+
+		// Validate that all properties marked as required are resolvable:
+		// see ConfigurablePropertyResolver#setRequiredProperties
+        //验证所有属性是可以解析的
+		getEnvironment().validateRequiredProperties();
+
+		// Store pre-refresh ApplicationListeners...
+        //存储预刷新的应用监听器
+		if (this.earlyApplicationListeners == null) {
+			this.earlyApplicationListeners = new LinkedHashSet<>(this.applicationListeners);
+		}
+		else {
+			// Reset local application listeners to pre-refresh state.
+			this.applicationListeners.clear();
+			this.applicationListeners.addAll(this.earlyApplicationListeners);
+		}
+
+		// Allow for the collection of early ApplicationEvents,
+		// to be published once the multicaster is available...
+        //当时，允许事件发布(ApplicationEvents)发布事件
+		this.earlyApplicationEvents = new LinkedHashSet<>();
+	}
+```
+
+
+
+
+
+```java
+	protected void prepareBeanFactory(ConfigurableListableBeanFactory beanFactory) {
+		// Tell the internal bean factory to use the context's class loader etc.
+		beanFactory.setBeanClassLoader(getClassLoader());
+		if (!shouldIgnoreSpel) {
+			beanFactory.setBeanExpressionResolver(new StandardBeanExpressionResolver(beanFactory.getBeanClassLoader()));
+		}
+		beanFactory.addPropertyEditorRegistrar(new ResourceEditorRegistrar(this, getEnvironment()));
+
+		// Configure the bean factory with context callbacks.
+		beanFactory.addBeanPostProcessor(new ApplicationContextAwareProcessor(this));
+		beanFactory.ignoreDependencyInterface(EnvironmentAware.class);
+		beanFactory.ignoreDependencyInterface(EmbeddedValueResolverAware.class);
+		beanFactory.ignoreDependencyInterface(ResourceLoaderAware.class);
+		beanFactory.ignoreDependencyInterface(ApplicationEventPublisherAware.class);
+		beanFactory.ignoreDependencyInterface(MessageSourceAware.class);
+		beanFactory.ignoreDependencyInterface(ApplicationContextAware.class);
+		beanFactory.ignoreDependencyInterface(ApplicationStartupAware.class);
+
+		// BeanFactory interface not registered as resolvable type in a plain factory.
+		// MessageSource registered (and found for autowiring) as a bean.
+		beanFactory.registerResolvableDependency(BeanFactory.class, beanFactory);
+		beanFactory.registerResolvableDependency(ResourceLoader.class, this);
+		beanFactory.registerResolvableDependency(ApplicationEventPublisher.class, this);
+		beanFactory.registerResolvableDependency(ApplicationContext.class, this);
+
+		// Register early post-processor for detecting inner beans as ApplicationListeners.
+		beanFactory.addBeanPostProcessor(new ApplicationListenerDetector(this));
+
+		// Detect a LoadTimeWeaver and prepare for weaving, if found.
+		if (!NativeDetector.inNativeImage() && beanFactory.containsBean(LOAD_TIME_WEAVER_BEAN_NAME)) {
+			beanFactory.addBeanPostProcessor(new LoadTimeWeaverAwareProcessor(beanFactory));
+			// Set a temporary ClassLoader for type matching.
+			beanFactory.setTempClassLoader(new ContextTypeMatchClassLoader(beanFactory.getBeanClassLoader()));
+		}
+
+		// Register default environment beans.
+		if (!beanFactory.containsLocalBean(ENVIRONMENT_BEAN_NAME)) {
+			beanFactory.registerSingleton(ENVIRONMENT_BEAN_NAME, getEnvironment());
+		}
+		if (!beanFactory.containsLocalBean(SYSTEM_PROPERTIES_BEAN_NAME)) {
+			beanFactory.registerSingleton(SYSTEM_PROPERTIES_BEAN_NAME, getEnvironment().getSystemProperties());
+		}
+		if (!beanFactory.containsLocalBean(SYSTEM_ENVIRONMENT_BEAN_NAME)) {
+			beanFactory.registerSingleton(SYSTEM_ENVIRONMENT_BEAN_NAME, getEnvironment().getSystemEnvironment());
+		}
+		if (!beanFactory.containsLocalBean(APPLICATION_STARTUP_BEAN_NAME)) {
+			beanFactory.registerSingleton(APPLICATION_STARTUP_BEAN_NAME, getApplicationStartup());
+		}
+	}
+```
+
+
+
+#### 刷新上下文之后进行的操作
+
+在IOC容器创建完组件之后执行`afterRefresh(context, applicationArguments);`
+
+
+
+//向所有监听器发布启动事件`listeners.started(context);`
+
+```java
+	void started(ConfigurableApplicationContext context) {
+		doWithListeners("spring.boot.application.started", (listener) -> listener.started(context));
+	}
+```
+
+
+
+如果有ApplicationRunner或者CommandLineRunner类型的bean，则触发run函数，启动任务`callRunners(context, applicationArguments);`
+
+#### 向所有监听器发布已启动事件
+
+向所有监听器发布运行事件`listeners.running(context);`
+
+```java
+	void running(ConfigurableApplicationContext context) {
+		doWithListeners("spring.boot.application.running", (listener) -> listener.running(context));
+	}
+```
+
+
+
+#### 处理异常
+
+如果启动过程中出现了异常`handleRunFailure(context, ex, listeners);`，通知所有监听器，执行`listeners.failed(context, exception);`方法
+
+```java
+		catch (Throwable ex) {
+			handleRunFailure(context, ex, listeners);
+			throw new IllegalStateException(ex);
+		}
+```
+
+执行
+
+```java
+	private void handleRunFailure(ConfigurableApplicationContext context, Throwable exception,
+			SpringApplicationRunListeners listeners) {
+		try {
+			try {
+				handleExitCode(context, exception);
+				if (listeners != null) {
+					listeners.failed(context, exception);
+				}
+			}
+			finally {
+				reportFailure(getExceptionReporters(context), exception);
+				if (context != null) {
+					context.close();
+				}
+			}
+		}
+		catch (Exception ex) {
+			logger.warn("Unable to close ApplicationContext", ex);
+		}
+		ReflectionUtils.rethrowRuntimeException(exception);
+	}
+```
+
+
+
+至此`SpringBoot`启动过程结束
+
+
+
+最后，总结一下`SpringBoot`1启动过程：
 

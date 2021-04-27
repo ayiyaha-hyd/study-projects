@@ -5,3 +5,4 @@ spring-boot-eureka/eureka-consumer/target/
 spring-boot-eureka/eureka-provider/target/
 spring-boot-eureka/eureka-server/target/
 *.iml
+java-demo/target/

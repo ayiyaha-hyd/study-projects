@@ -10,6 +10,7 @@ import java.nio.file.Paths;
 
 /**
  * 文件操作
+ * Java的标准库java.io提供了File对象来操作文件和目录。
  */
 public class FileDemo {
     public static void main(String[] args) throws Exception{
@@ -65,6 +66,9 @@ public class FileDemo {
         /* 判断文件或目录是否存在 两种方法*/
         file.exists();
         Files.exists(Paths.get(file.getPath()));
+        /* 判断文件是否存在 示例: */
+        existsFile1("");
+        existsFile2("");
 
         /* 创建和删除文件 */
 
@@ -85,6 +89,9 @@ public class FileDemo {
         /* 删除当前File对象表示的目录，当前目录必须为空才能删除成功 */
         file4.delete();
 
+        /* 删除目录的方法见以下示例 */
+        delDir(new File("xxx"));
+
         /* 遍历文件和目录 */
 
         File dir = new File("C:\\Windows");
@@ -98,6 +105,40 @@ public class FileDemo {
             }
         });
 
+
+
+        /* 判断权限和大小 */
+
+        /* 是否可读 */
+        file.canRead();
+        /* 是否可写 */
+        file.canWrite();
+        /* 是否可执行，对于目录来说，是否可执行表示能否列出它包含的文件和子目录 */
+        file.canExecute();
+        /* 文件字节大小 */
+        file.length();
+
+
+        /*
+        Java标准库还提供了一个Path对象，它位于java.nio.file包。Path对象和File对象类似，但操作更加简单。
+        如果需要对目录进行复杂的拼接、遍历等操作，使用Path对象更方便。
+         */
+        /* 构造一个Path对象 */
+        Path path1 = Paths.get(".","project","study");
+        System.out.println(path1);
+        /* 转换为绝对路径 */
+        Path path2 = path1.toAbsolutePath();
+        System.out.println(path2);
+        /* 转换为规范路径 */
+        Path path3 = path2.normalize();
+        System.out.println(path3);
+        /* 转换为File对象 */
+        File file5 = path3.toFile();
+        System.out.println(file5);
+        /* 遍历Path */
+        for(Path p:Paths.get("..").toAbsolutePath()){
+            System.out.println(p);
+        }
     }
 
     /**

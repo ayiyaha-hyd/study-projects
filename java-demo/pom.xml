@@ -13,4 +13,13 @@
         <maven.compiler.target>8</maven.compiler.target>
     </properties>
 
+    <!-- Hutool是一个Java工具包类库，对文件、流、加密解密、转码、正则、线程、XML等JDK方法进行封装，组成各种Util工具类 -->
+    <dependencies>
+        <dependency>
+            <groupId>cn.hutool</groupId>
+            <artifactId>hutool-all</artifactId>
+            <version>5.6.3</version>
+        </dependency>
+    </dependencies>
+
 </project>

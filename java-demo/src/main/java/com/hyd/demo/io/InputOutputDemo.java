@@ -5,11 +5,10 @@ import java.nio.charset.StandardCharsets;
 
 /**
  * Java 输入输出流
- *
  */
 public class InputOutputDemo {
-    public static void main(String[] args) throws Exception{
-        readFile5();
+    public static void main(String[] args) throws Exception {
+        writeFile2();
         byte[] buf = null;
         char[] chars = null;
         String s = null;
@@ -168,6 +167,15 @@ public class InputOutputDemo {
         /* ------------------------------------------------------ */
         /*
         字符输出流 Writer
+        Reader是带编码转换器的InputStream，它把byte转换为char，而Writer就是带编码转换器的OutputStream，它把char转换为byte并输出。
+        Writer是所有字符输出流的超类，它提供的方法主要有：
+            写入一个字符（0~65535）：void write(int c)；
+            写入字符数组的所有字符：void write(char[] c)；
+            写入String表示的所有字符：void write(String s)。
+
+        CharArrayWriter可以在内存中创建一个Writer，它的作用实际上是构造一个缓冲区，可以写入char，最后得到写入的char[]数组，这和ByteArrayOutputStream非常类似。
+        StringWriter也是一个基于内存的Writer，它和CharArrayWriter类似。实际上，StringWriter在内部维护了一个StringBuffer，并对外提供了Writer接口。
+        除了CharArrayWriter和StringWriter外，普通的Writer实际上是基于OutputStream构造的，它接收char，然后在内部自动转换成一个或多个byte，并写入OutputStream。因此，OutputStreamWriter就是一个将任意的OutputStream转换为Writer的转换器：
 
         */
 
@@ -178,6 +186,50 @@ public class InputOutputDemo {
         BufferedWriter bufferedWriter = new BufferedWriter(fileWriter);
 
 
+        /* 写文件示例 */
+        writeFile2();
+
+
+        /*
+        Filter模式（装饰器）
+
+        Java的IO标准库提供的InputStream根据来源可以包括：
+            FileInputStream：从文件读取数据，是最终数据源；
+            ServletInputStream：从HTTP请求读取数据，是最终数据源；
+            Socket.getInputStream()：从TCP连接读取数据，是最终数据源；
+            ...
+
+            DK首先将InputStream分为两大类：
+                一类是直接提供数据的基础InputStream，例如：
+                FileInputStream
+                ByteArrayInputStream
+                ServletInputStream
+                ...
+                一类是提供额外附加功能的InputStream，例如：
+                BufferedInputStream
+                DigestInputStream
+                CipherInputStream
+                ...
+        常见的缓冲，加密等装饰类都继承自FilterInputStream，FileOutputStream
+
+        流一层一层的包装，操作的是最外层的流，关闭流时，需要由内而外把每一层的流都关闭掉，使用try-with-resources可以直接关闭最外层，会自动调用每一层的关闭
+         */
+
+
+
+
+        /*
+        PrintStream和PrintWriter
+
+        PrintStream是一种能接收各种数据类型的输出，打印数据时比较方便：
+            System.out是标准输出；
+            System.err是标准错误输出。
+        PrintWriter是基于Writer的输出。
+        我们经常使用的System.out.println()实际上就是使用PrintStream打印各种数据。其中，System.out是系统默认提供的PrintStream，表示标准输出
+        PrintStream和OutputStream相比，除了添加了一组print()/println()方法，可以打印各种数据类型，比较方便外，它还有一个额外的优点，就是不会抛出IOException，这样我们在编写代码的时候，就不必捕获IOException。
+        PrintStream最终输出的总是byte数据，而PrintWriter则是扩展了Writer接口，它的print()/println()方法最终输出的是char数据。
+
+         */
 
 
 
@@ -199,14 +251,15 @@ public class InputOutputDemo {
 
     /**
      * 读取文件
+     *
      * @throws IOException
      */
-    private static void readFile1() throws IOException{
+    private static void readFile1() throws IOException {
         String filePath = "C:\\projects\\study-projects\\java-demo\\src\\main\\resources\\temp\\1.txt";
         /* try(resource) 写法 */
-        try(FileInputStream input = new FileInputStream(filePath)) {
+        try (FileInputStream input = new FileInputStream(filePath)) {
             int n;
-            while ((n=input.read())!=-1){
+            while ((n = input.read()) != -1) {
                 System.out.print((char) n);
             }
         }
@@ -214,9 +267,10 @@ public class InputOutputDemo {
 
     /**
      * 利用缓冲区读文件
+     *
      * @throws IOException
      */
-    private static void readFile2() throws IOException{
+    private static void readFile2() throws IOException {
         String filePath = "C:\\projects\\study-projects\\java-demo\\src\\main\\resources\\temp\\1.txt";
         /* 传统写法 try ... finally */
         FileInputStream input = null;
@@ -224,11 +278,11 @@ public class InputOutputDemo {
             input = new FileInputStream(filePath);
             byte[] buffer = new byte[2];
             int n;
-            while ((n=input.read(buffer))!=-1){
-                System.out.print("read "+n+" bytes;\n");
+            while ((n = input.read(buffer)) != -1) {
+                System.out.print("read " + n + " bytes;\n");
             }
-        }finally {
-            if(input!=null){
+        } finally {
+            if (input != null) {
                 input.close();
             }
         }
@@ -236,10 +290,11 @@ public class InputOutputDemo {
 
     /**
      * 写文件
+     *
      * @throws IOException
      */
-    private static void writeFile1()throws IOException{
-        try(FileOutputStream output = new FileOutputStream("2-out.txt");){
+    private static void writeFile1() throws IOException {
+        try (FileOutputStream output = new FileOutputStream("2-out.txt");) {
             String str = "hello，编程";
             output.write(str.getBytes(StandardCharsets.UTF_8));
         }
@@ -247,14 +302,15 @@ public class InputOutputDemo {
 
     /**
      * 读取文件（字符流）
+     *
      * @throws IOException
      */
-    private static void readFile3()throws IOException{
+    private static void readFile3() throws IOException {
         String filePath = "C:\\projects\\study-projects\\java-demo\\src\\main\\resources\\temp\\短歌行.txt";
-        try(FileReader reader = new FileReader(filePath);){
+        try (FileReader reader = new FileReader(filePath);) {
             int n;
-            while ((n=reader.read())!=-1){
-                System.out.print((char)n);
+            while ((n = reader.read()) != -1) {
+                System.out.print((char) n);
             }
 
         }
@@ -262,29 +318,46 @@ public class InputOutputDemo {
 
     /**
      * 读取文件（字符流，利用缓冲区）
+     *
      * @throws IOException
      */
-    private static void readFile4()throws IOException{
+    private static void readFile4() throws IOException {
         String filePath = "C:\\projects\\study-projects\\java-demo\\src\\main\\resources\\temp\\短歌行.txt";
-        try(FileReader reader = new FileReader(filePath);){
+        try (FileReader reader = new FileReader(filePath);) {
             char[] buffer = new char[16];
             int n;
-            while ((n=reader.read(buffer))!=-1){
-                System.out.println("read "+n+" chars.");
+            while ((n = reader.read(buffer)) != -1) {
+                System.out.println("read " + n + " chars.");
             }
         }
     }
 
-    private static void readFile5()throws IOException{
+    /**
+     * 读取文件（字节流转字符流）
+     *
+     * @throws IOException
+     */
+    private static void readFile5() throws IOException {
         String filePath = "C:\\projects\\study-projects\\java-demo\\src\\main\\resources\\temp\\短歌行.txt";
         InputStream in;
-        try(InputStreamReader reader = new InputStreamReader(new FileInputStream(filePath));){
+        try (InputStreamReader reader = new InputStreamReader(new FileInputStream(filePath));) {
             int n;
-            while ((n=reader.read())!=-1){
-                System.out.print((char)n);
+            while ((n = reader.read()) != -1) {
+                System.out.print((char) n);
             }
         }
     }
 
+    /**
+     * 写文件（字符流）
+     *
+     * @throws IOException
+     */
+    private static void writeFile2() throws IOException {
+        try (Writer writer = new FileWriter("3-out.txt")) {
+            writer.write("写文件（字符流）\n");
+            writer.write("abcde");
+        }
+    }
 
 }

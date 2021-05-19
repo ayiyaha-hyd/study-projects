@@ -15,3 +15,8 @@ spring-cloud-study-001/cloud-provider-payment8001/target/
 spring-cloud-study-001/cloud-provider-payment8002/target/
 spring-cloud-study-001/cloud-provider-payment8003/target/
 
+spring-cloud-study-001/cloud-consumerconsul-order80/target/
+spring-cloud-study-001/cloud-consumer-feign-order80/target/
+spring-cloud-study-001/cloud-consumerzk-order80/target/
+spring-cloud-study-001/cloud-providerconsul-payment8005/target/
+spring-cloud-study-001/cloud-provider-payment8004/target/

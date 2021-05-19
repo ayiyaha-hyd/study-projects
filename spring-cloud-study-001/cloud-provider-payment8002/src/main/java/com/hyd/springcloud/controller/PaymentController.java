@@ -8,6 +8,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.concurrent.TimeUnit;
+
 @RestController
 @Slf4j
 @RequestMapping(value = "/payment")
@@ -38,6 +40,30 @@ public class PaymentController {
             return new CommonResult(200,"查询成功 --- port: "+serverPort,payment);
         }else {
             return new CommonResult(444,"无记录");
+        }
+    }
+
+    /**
+     * 测试负载均衡算法选择
+     * @return
+     */
+    @GetMapping("/lb")
+    public String getPaymentLB(){
+        return "server port: "+serverPort;
+    }
+
+    /**
+     * 测试feign超时控制
+     * @return
+     */
+    @GetMapping("/feign/timeout")
+    public String paymentFeignTimeout(){
+        try {
+            TimeUnit.SECONDS.sleep(3);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }finally {
+            return serverPort;
         }
     }
 }

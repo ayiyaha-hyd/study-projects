@@ -1,0 +1,19 @@
+server:
+  port: 8001
+spring:
+  application:
+    name: cloud-provider-hystrix-payment
+eureka:
+  client:
+    register-with-eureka: true
+    fetch-registry: true
+    service-url:
+      defaultZone: http://localhost:7001/eureka # 单机版
+#      defaultZone: http://cloud-eureka-server7001:7001/eureka/, http://cloud-eureka-server7002:7002/eureka/, http://cloud-eureka-server7003:7003/eureka/ #集群版
+
+# 被监控的hystrix-service服务需要开启Actuator的hystrix.stream端点
+management:
+  endpoints:
+    web:
+      exposure:
+        include: "hystrix.stream" # 暴露hystrix监控端点

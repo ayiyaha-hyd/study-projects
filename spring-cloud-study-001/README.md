@@ -1,8 +1,4 @@
----
-
----
-
-# SpringCloud学习
+SpringCloud学习
 
 ---
 [TOC]
@@ -3227,4 +3223,1174 @@ logging:
 
 ---
 
+## 服务降级
+
+### Hystrix断路器
+
+#### 概述
+
+##### 分布式系统面临的问题
+
+复杂分布式体系结构中的应用程序有数十个依赖关系，每个依赖关系在某些时候将不可避免地失败。
+
+##### 服务雪崩
+
+多个微服务之间调用的时候，假设微服务A调用微服务B和微服务C，微服务B和微服务C又调用其它的微服务，这就是所谓的“扇出”。如果扇出的链路上某个微服务的调用响应时间过长或者不可用，对微服务A的调用就会占用越来越多的系统资源，进而引起系统崩溃，所谓的“雪崩效应”.
+对于高流量的应用来说，单一的后避依赖可能会导致所有服务器上的所有资源都在几秒钟内饱和。比失败更糟糕的是，这些应用程序还可能导致服务之间的延迟增加，备份队列，线程和其他系统资源紧张，导致整个系统发生更多的级联故障。这些都表示需要对故障和延迟进行隔离和管理，以便单个依赖关系的失败，不能取消整个应用程序或系统。
+
+所以，通常当你发现一个模块下的某个实例失败后，这时候这个模块依然还会接收流量，然后这个有问题的模块还调用了其他的模块，这样就会发生级联故障，或者叫雪崩。
+
+##### Hystrix是什么
+
+Hystrix是一个用于处理分布式系统的延迟和容错的开源库，在分布式系统里，许多依赖不可避免的会调用失败，比如超时、异常等，Hystrix能够保证在一个依赖出问题的情况下，不会导致整体服务失败，避免级联故障，以提高分布式系统的弹性。
+
+"断路器”本身是一种开关装置，当某个服务单元发生故障之后，通过断路器的故障监控（类似熔断保险丝)，向调用方返回一个符合预期的、可处理的备选响应（FallBack)，而不是长时间的等待或者抛出调用方无法处理的异常，这样就保证了服务调用方的线程不会被长时间、不必要地占用，从而避免了故障在分布式系统中的蔓延，乃至雪崩。
+
+##### Hystrix能干什么
+
+* 服务降级
+* 服务熔断
+* 服务限流
+* 接近实时的监控
+* ...
+
+官网：[Netflix/Hystrix](https://github.com/Netflix/Hystrix)
+
+Hystrix已经进入停止更新，维护状态。
+
+#### Hystrix重要概念
+
+##### 服务降级(fallback)
+
+比如当某个服务繁忙，不能让客户端的请求一直等待，应该立刻返回给客户端一个备选方案。
+
+出现降级的情况：
+
+* 程序运行异常
+* 超时
+* 发生服务熔断
+* 线程池/信号量打满
+
+##### 服务熔断(break)
+
+服务熔断的作用类似于我们家用的保险丝，当某服务出现不可用或响应超时的情况时，为了防止整个系统出现雪崩，暂时停止对该服务的调用。
+
+服务的降级 -> 进而熔断 -> 恢复调用链路
+
+##### 服务限流(flowlimit)
+
+秒杀高并发等操作，严禁一窝蜂的过来拥挤，大家排队，一秒钟N个，有序进行。
+
+#### Hystrix案例
+
+##### 服务降级
+
+###### 创建消费者服务提供子模块
+
+创建消费者服务提供子模块cloud-provider-hystrix-payment8001
+
+pom.xml
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <parent>
+        <artifactId>cloud2021</artifactId>
+        <groupId>com.hyd.springcloud</groupId>
+        <version>1.0-SNAPSHOT</version>
+    </parent>
+    <modelVersion>4.0.0</modelVersion>
+    <artifactId>cloud-provider-hystrix-payment8001</artifactId>
+
+    <dependencies>
+        <!-- hystrix -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-netflix-hystrix</artifactId>
+        </dependency>
+        <!-- eureka client -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
+        </dependency>
+        <!-- web -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <!-- actuator -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <!-- 自定义api通用包 -->
+        <dependency>
+            <groupId>com.hyd.springcloud</groupId>
+            <artifactId>cloud-api-commons</artifactId>
+            <version>1.0-SNAPSHOT</version>
+        </dependency>
+        <!-- devtools -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-devtools</artifactId>
+            <scope>runtime</scope>
+            <optional>true</optional>
+        </dependency>
+        <!-- lombok -->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+        </dependency>
+        <!-- test -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+        </dependency>
+    </dependencies>
+</project>
+```
+
+application.yaml
+
+```yaml
+server:
+  port: 8001
+spring:
+  application:
+    name: cloud-provider-hystrix-payment
+eureka:
+  client:
+    register-with-eureka: true
+    fetch-registry: true
+    service-url:
+      defaultZone: http://cloud-eureka-server7001:7001/eureka/, http://cloud-eureka-server7002:7002/eureka/, http://cloud-eureka-server7003:7003/eureka/ #集群版
+```
+
+主启动类
+
+```java
+package com.hyd.springcloud;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.cloud.netflix.eureka.EnableEurekaClient;
+
+@SpringBootApplication
+@EnableEurekaClient
+public class PaymentHystrixMain8001 {
+    public static void main(String[] args) {
+        SpringApplication.run(PaymentHystrixMain8001.class,args);
+    }
+}
+
+```
+
+service层
+
+```java
+package com.hyd.springcloud.service.impl;
+
+import com.hyd.springcloud.service.PaymentService;
+import org.springframework.stereotype.Service;
+
+import java.util.concurrent.TimeUnit;
+
+@Service
+public class PaymentServiceImpl implements PaymentService {
+    @Override
+    public String paymentInfo_OK(Integer id) {
+        return "线程池: "+Thread.currentThread().getName()+" ,paymentInfo_OK ,id: "+id;
+    }
+
+    @Override
+    public String paymentInfo_TimeOut(Integer id) {
+        try {
+            TimeUnit.SECONDS.sleep(3);
+        }catch (InterruptedException e){
+            e.printStackTrace();
+        }
+        return "线程池: "+Thread.currentThread().getName()+" ,paymentInfo_TimeOut ,id: "+id+" ,耗时: 3秒";
+    }
+}
+
+```
+
+controller层
+
+```java
+package com.hyd.springcloud.controller;
+
+import com.hyd.springcloud.service.PaymentService;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+@RequestMapping("/payment/hystrix")
+@Slf4j
+public class PaymentController {
+    @Autowired
+    private PaymentService paymentService;
+    @Value("${server.port}")
+    private String serverPort;
+
+    @GetMapping("/ok/{id}")
+    public String paymentInfo_OK(@PathVariable("id") Integer id) {
+        String result = paymentService.paymentInfo_OK(id);
+        log.info("OK result ---> {}",result);
+        return result;
+    }
+
+    @GetMapping("/timeout/{id}")
+    public String paymentInfo_TimeOut(@PathVariable("id") Integer id) {
+        String result = paymentService.paymentInfo_TimeOut(id);
+        log.info("TimeOut result ---> {}",result);
+        return result;
+    }
+}
+
+```
+
+启动服务，访问：
+
+http://localhost:8001/payment/hystrix/ok/1
+
+```
+线程池: http-nio-8001-exec-6 ,paymentInfo_OK ,id: 1
+```
+
+http://localhost:8001/payment/hystrix/timeout/1
+
+```
+线程池: http-nio-8001-exec-8 ,paymentInfo_TimeOut ,id: 1 ,耗时: 3秒
+```
+
+以上服务均正常，以该子模块为基础，演示：正确 --> 错误 --> 降级熔断 --> 恢复。
+
+###### JMeter高并发压测后卡顿
+
+使用Jmeter进行压力测试，建立一个线程组，创建200个线程，间隔1秒，循环100次，并创建http请求，访问timeout接口，会发现ok接口访问速度下降了，tomcat的默认的工作线程数被打满了，没有多余的线程来分解压力和处理。
+
+###### 创建订单消费者模块，加入进来测试
+
+模块cloud-consumer-feign-hystrix-order80
+
+pom.xml
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <parent>
+        <artifactId>cloud2021</artifactId>
+        <groupId>com.hyd.springcloud</groupId>
+        <version>1.0-SNAPSHOT</version>
+    </parent>
+    <modelVersion>4.0.0</modelVersion>
+
+    <artifactId>cloud-consumer-feign-hystrix-order80</artifactId>
+
+    <dependencies>
+        <!--hystrix-->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-netflix-hystrix</artifactId>
+        </dependency>
+        <!--openfeign-->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-openfeign</artifactId>
+        </dependency>
+        <!--eureka client-->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
+        </dependency>
+        <!-- 引入自己定义的api通用包，可以使用Payment支付Entity -->
+        <dependency>
+            <groupId>com.hyd.springcloud</groupId>
+            <artifactId>cloud-api-commons</artifactId>
+            <version>1.0-SNAPSHOT</version>
+        </dependency>
+        <!--web-->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <!--一般基础通用配置-->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-devtools</artifactId>
+            <scope>runtime</scope>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>
+```
+
+application.yaml
+
+```yaml
+server:
+  port: 80
+eureka:
+  client:
+    register-with-eureka: false
+    service-url:
+      defaultZone: http://cloud-eureka-server7001:7001/eureka/, http://cloud-eureka-server7002:7002/eureka/, http://cloud-eureka-server7003:7003/eureka/ #集群版
+```
+
+启动类
+
+```java
+package com.hyd.springcloud;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.cloud.openfeign.EnableFeignClients;
+
+@SpringBootApplication
+@EnableFeignClients
+public class OrderHystrixMain80 {
+    public static void main(String[] args) {
+        SpringApplication.run(OrderHystrixMain80.class,args);
+    }
+}
+
+```
+
+服务调用接口
+
+```java
+package com.hyd.springcloud.service;
+
+import org.springframework.cloud.openfeign.FeignClient;
+import org.springframework.stereotype.Component;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+
+@Component
+@FeignClient(value = "CLOUD-PROVIDER-HYSTRIX-PAYMENT")
+public interface PaymentHystrixService {
+    @GetMapping("/payment/hystrix/ok/{id}")
+    public String paymentInfo_OK(@PathVariable("id") Integer id);
+
+    @GetMapping("/payment/hystrix/timeout/{id}")
+    public String paymentInfo_TimeOut(@PathVariable("id") Integer id);
+}
+
+```
+
+controller层
+
+```java
+package com.hyd.springcloud.controller;
+
+import com.hyd.springcloud.service.PaymentHystrixService;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+@RequestMapping("/consumer/payment/hystrix")
+@Slf4j
+public class OrderHystirxController {
+    @Autowired
+    private PaymentHystrixService paymentHystrixService;
+
+    @GetMapping("/ok/{id}")
+    public String paymentInfo_OK(@PathVariable("id") Integer id)
+    {
+        String result = paymentHystrixService.paymentInfo_OK(id);
+        return result;
+    }
+
+    @GetMapping("/timeout/{id}")
+    public String paymentInfo_TimeOut(@PathVariable("id") Integer id) {
+        String result = paymentHystrixService.paymentInfo_TimeOut(id);
+        return result;
+    }
+}
+
+```
+
+访问：http://localhost/consumer/payment/hystrix/ok/1
+
+高并发压测下，order微服务模块访问卡顿
+
+现阶段存在的问题：
+
+* 超时导致服务器响应变慢 --> 超时不再等待
+* 出错（宕机或程序出错）--> 出错要有兜底
+
+解决：
+
+* 对方服务(8001)超时了，调用者(80)不能一直等待，必须服务降级；
+* 对方服务(8001)宕机了，调用者(80)不能一直卡死等待，必须服务降级；
+* 对方服务(8001)正常，调用者(80)出故障或有自我要求（允许的等待时间小于调用的时间），必须服务降级。
+
+###### 改造为服务降级的服务提供者子模块
+
+改造cloud-provider-hystrix-payment8001服务提供模块
+
+降级配置 - @HystrixCommand
+
+8001先从自身找问题
+
+设置自身调用超时时间的峰值，峰值内可以正常运行，超过了需要有兜底的方法处埋，作服务降级fallback。
+
+8001fallback
+
+业务类启用 - @HystrixCommand报异常后如何处理
+
+—旦调用服务方法失败并抛出了错误信息后，会自动调用@HystrixCommand标注好的fallbackMethod调用类中的指定方法。
+
+改造cloud-provider-hystrix-payment8001服务提供模块
+
+改造service服务
+
+```java
+    @HystrixCommand(fallbackMethod = "paymentInfo_TimeOutHandler", commandProperties = {@HystrixProperty(name = "execution.isolation.thread.timeoutInMilliseconds", value = "3000")})
+    @Override
+    public String paymentInfo_TimeOut(Integer id) {
+        try {
+//            TimeUnit.SECONDS.sleep(3);
+            int n=10/0;//故意制造异常
+            TimeUnit.SECONDS.sleep(5);//故意制造超出允许时间的时长
+
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+        return "线程池: " + Thread.currentThread().getName() + " ,paymentInfo_TimeOut ,id: " + id + " ,耗时: 3秒";
+    }
+
+    //用来善后的方法
+    public String paymentInfo_TimeOutHandler(Integer id) {
+        return "线程池:  " + Thread.currentThread().getName() + "  8001系统繁忙或者运行报错，请稍后再试,id:  " + id + "\t" + "o(╥﹏╥)o";
+    }
+```
+
+启动类添加注解`@EnableCircuitBreaker`
+
+@EnableHystrix注解与@EnableCircuitBreaker的区别
+
+* 查看@EnableHystrix的源码可以发现，它继承了@EnableCircuitBreaker，并对它进行了在封装。
+* 这两个注解都是激活hystrix的功能，我们根据上面代码得出来结论，只需要在服务启动类加入@EnableHystrix注解即可，无须增加@EnableCircuitBreaker注解，本身@EnableHystrix注解已经涵盖了EnableCircuitBreaker的功能。
+
+```java
+package com.hyd.springcloud;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.cloud.client.circuitbreaker.EnableCircuitBreaker;
+import org.springframework.cloud.netflix.eureka.EnableEurekaClient;
+
+@SpringBootApplication
+@EnableEurekaClient
+@EnableCircuitBreaker//实现hystrix断路器功能
+public class PaymentHystrixMain8001 {
+    public static void main(String[] args) {
+        SpringApplication.run(PaymentHystrixMain8001.class,args);
+    }
+}
+
+```
+
+启动服务，访问：http://localhost/consumer/payment/hystrix/timeout/1
+
+返回结果：
+
+```
+线程池:  hystrix-PaymentServiceImpl-1  8001系统繁忙或者运行报错，请稍后再试,id:  1	o(╥﹏╥)o
+```
+
+成功调用了服务超时的应对处理方法，当前服务不可用了，做服务降级，兜底的方案都是paymentInfo_TimeOutHandler。
+
+
+
+###### 订单消费者调用方进行服务降级处理
+
+改造子模块cloud-consumer-feign-hystrix-order80
+
+一般服务降级，都是放在客户端。
+
+修改application.yaml，新增配置
+
+```yaml
+#feign开启hystrix支持
+feign:
+  hystrix:
+    enabled: true
+```
+
+修改启动类，添加`@EnableHystrix`注解
+
+```java
+package com.hyd.springcloud;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.cloud.netflix.hystrix.EnableHystrix;
+import org.springframework.cloud.openfeign.EnableFeignClients;
+
+@SpringBootApplication
+@EnableFeignClients
+@EnableHystrix//开启hystrix注解
+public class OrderHystrixMain80 {
+    public static void main(String[] args) {
+        SpringApplication.run(OrderHystrixMain80.class,args);
+    }
+}
+
+```
+
+修改controller层逻辑，方法上添加`@HystrixCommand`注解，此注解表示此方法是hystrix方法，其中fallbackMethod定义回退方法的名称
+
+```java
+    @HystrixCommand(fallbackMethod = "paymentTimeOutFallbackMethod",commandProperties = {
+            @HystrixProperty(name="execution.isolation.thread.timeoutInMilliseconds",value="1500")
+    })
+    @GetMapping("/timeout/{id}")
+    public String paymentInfo_TimeOut(@PathVariable("id") Integer id) {
+        String result = paymentHystrixService.paymentInfo_TimeOut(id);
+        return result;
+    }
+
+    //善后方法
+    public String paymentTimeOutFallbackMethod(@PathVariable("id") Integer id){
+        return "我是消费者80,对方支付系统繁忙请10秒钟后再试或者自己运行出错请检查自己,o(╥﹏╥)o";
+    }
+```
+
+访问：http://localhost/consumer/payment/hystrix/timeout/1
+
+服务端需要3秒处理(TimeUnit.SECONDS.sleep(3);)，此处调用方允许时间为1.5秒
+
+结果：
+
+```
+我是消费者80,对方支付系统繁忙请10秒钟后再试或者自己运行出错请检查自己,o(╥﹏╥)o
+```
+
+
+
+**目前两个降级模块出现的问题**
+
+* 每个业务方法都写了一个降级方法，重复代码多（问题1）
+* 降级方法与业务方法写在了一块，耦合度高（问题2）
+
+**解决**（问题1）
+
+配置一个全局的降级方法，所有方法都可以走这个降级方法，至于某些特殊创建，再单独创建方法。
+
+除了个别重要核心业务有专属，其它普通的可以通过@DefaultProperties(defaultFallback = “”)统一跳转到统一处理结果页面，通用的和独享的各自分开，避免了代码膨胀，合理减少了代码量
+
+**改造**
+
+添加`@DefaultProperties`注解，defaultFallback指定统一服务降级处理方法，使用`@HystrixCommand`表明该方法走默认统一服务降级处理方法，如方法paymentInfo_TimeOut2。
+
+```java
+package com.hyd.springcloud.controller;
+
+import com.hyd.springcloud.service.PaymentHystrixService;
+import com.netflix.hystrix.contrib.javanica.annotation.DefaultProperties;
+import com.netflix.hystrix.contrib.javanica.annotation.HystrixCommand;
+import com.netflix.hystrix.contrib.javanica.annotation.HystrixProperty;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+@RequestMapping("/consumer/payment/hystrix")
+@Slf4j
+@DefaultProperties(defaultFallback = "payment_Global_FallbackMethod")//hystrix全局服务降级处理
+public class OrderHystirxController {
+    @Autowired
+    private PaymentHystrixService paymentHystrixService;
+
+    @GetMapping("/ok/{id}")
+    public String paymentInfo_OK(@PathVariable("id") Integer id)
+    {
+        String result = paymentHystrixService.paymentInfo_OK(id);
+        return result;
+    }
+    @HystrixCommand(fallbackMethod = "paymentTimeOutFallbackMethod",commandProperties = {
+            @HystrixProperty(name="execution.isolation.thread.timeoutInMilliseconds",value="1500")
+    })
+    @GetMapping("/timeout/{id}")
+    public String paymentInfo_TimeOut(@PathVariable("id") Integer id) {
+        String result = paymentHystrixService.paymentInfo_TimeOut(id);
+        return result;
+    }
+
+    //善后方法
+    public String paymentTimeOutFallbackMethod(@PathVariable("id") Integer id){
+        return "我是消费者80,对方支付系统繁忙请10秒钟后再试或者自己运行出错请检查自己,o(╥﹏╥)o";
+    }
+
+    @HystrixCommand
+    @GetMapping("/timeout2/{id}")
+    public String paymentInfo_TimeOut2(@PathVariable("id") Integer id) {
+        String result = paymentHystrixService.paymentInfo_TimeOut(id);
+        return result;
+    }
+    // 下面是全局fallback方法
+    public String payment_Global_FallbackMethod() {
+        return "---全局异常处理---，请稍后重试";
+    }
+}
+
+```
+
+
+
+启动服务，访问：http://localhost/consumer/payment/hystrix/timeout2/1
+
+结果：
+
+```
+---全局异常处理---，请稍后重试
+```
+
+
+
+**解决**（问题2）
+
+降级方法与业务方法写在了一块，耦合度高
+
+**服务降级，客户端去调用服务端，碰上服务端宕机或关闭**
+
+本次案例服务降级处理是在客户端80实现完成的，与服务端8001没有关系，只需要为Feign客户端定义的接口添加一个服务降级处理的实现类即可实现解耦
+
+未来我们要面对的异常
+
+* 运行
+* 超时
+* 宕机
+
+**改造订单消费者模块**cloud-consumer-feign-hystrix-order80
+
+PaymentFallbackServiceImpl实现服务调用PaymentHystrixService接口，重写的方法便是该服务接口方法调用失败之后，执行实现类的方法，实现类为fallback方法。
+
+```java
+package com.hyd.springcloud.service.impl;
+
+import com.hyd.springcloud.service.PaymentHystrixService;
+import org.springframework.stereotype.Component;
+
+@Component
+public class PaymentFallbackServiceImpl implements PaymentHystrixService {
+    @Override
+    public String paymentInfo_OK(Integer id) {
+        return "fallback --> paymentInfo_OK() :"+id;
+    }
+
+    @Override
+    public String paymentInfo_TimeOut(Integer id) {
+        return "fallback --> paymentInfo_TimeOut() :"+id;
+    }
+}
+
+```
+
+服务调用接口注解修改，新增`fallback = PaymentFallbackServiceImpl.class`字段，指定服务降级方法
+
+```java
+package com.hyd.springcloud.service;
+
+import com.hyd.springcloud.service.impl.PaymentFallbackServiceImpl;
+import org.springframework.cloud.openfeign.FeignClient;
+import org.springframework.stereotype.Component;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+
+@Component
+@FeignClient(value = "CLOUD-PROVIDER-HYSTRIX-PAYMENT",fallback = PaymentFallbackServiceImpl.class)
+public interface PaymentHystrixService {
+    @GetMapping("/payment/hystrix/ok/{id}")
+    public String paymentInfo_OK(@PathVariable("id") Integer id);
+
+    @GetMapping("/payment/hystrix/timeout/{id}")
+    public String paymentInfo_TimeOut(@PathVariable("id") Integer id);
+}
+
+```
+
+启动服务，访问：http://localhost/consumer/payment/hystrix/ok/1
+
+```
+线程池: http-nio-8001-exec-1 ,paymentInfo_OK ,id: 1
+```
+
+关掉订单服务提供者cloud-provider-hystrix-payment8001，模拟服务提供方宕机，再次访问
+
+```
+fallback --> paymentInfo_OK() :1
+```
+
+> 另外发现实现PaymentHystrixService接口paymentInfo_TimeOut方法，controller使用了@HystrixCommand(fallbackMethod = "paymentTimeOutFallbackMethod",...注解，最后服务降级方法执行的是接口实现类的方法。
+
+
+
+##### 服务熔断
+
+断路器，相当于保险丝。
+
+**熔断机制概述**
+
+熔断机制是应对雪崩效应的一种微服务链路保护机制。当扇出链路的某个微服务出错不可用或者响应时间太长时，会进行服务的降级，进而熔断该节点微服务的调用，快速返回错误的响应信息。当检测到该节点微服务调用响应正常后，恢复调用链路。
+
+在Spring Cloud框架里，熔断机制通过Hystrix实现。Hystrix会监控微服务间调用的状况，当失败的调用到一定阈值，缺省是5秒内20次调用失败，就会启动熔断机制。熔断机制的注解是@HystrixCommand。
+
+**通俗解释**
+
+* 调用失败会触发降级，而降级会调用fallback方法
+* 但无论如何，降级的流程一定会先调用正常的方法再调用fallback方法
+* 假如单位时间内调用失败次数过多，也就是降级次数过多，则出发熔断
+* 所谓“熔断后服务不可用”就是因为跳过了正常方法，直接执行fallback方法
+
+[CircuitBreaker (martinfowler.com)](https://martinfowler.com/bliki/CircuitBreaker.html)
+
+![断路器](https://martinfowler.com/bliki/images/circuitBreaker/state.png)
+
+**案例**
+
+修改支付服务提供模块cloud-provider-hystrix-payment8001
+
+新增`paymentCircuitBreaker`服务方法，开启断路器
+
+```java
+    //服务熔断
+    @HystrixCommand(fallbackMethod = "paymentCircuitBreaker_fallback",commandProperties = {
+            @HystrixProperty(name = "circuitBreaker.enabled",value = "true"),// 是否开启断路器
+            @HystrixProperty(name = "circuitBreaker.requestVolumeThreshold",value = "10"),// 请求次数
+            @HystrixProperty(name = "circuitBreaker.sleepWindowInMilliseconds",value = "10000"),// 时间窗口期，会放入请求，该时间内如果放入的请求执行成功，则关闭断路器
+            @HystrixProperty(name = "circuitBreaker.errorThresholdPercentage",value = "60"),// 失败率达到多少后跳闸
+    })
+    @Override
+    public String paymentCircuitBreaker(@PathVariable("id") Integer id){
+        if(id<0){
+            throw new RuntimeException("---id 不能为负数："+id);
+        }
+        String serialNumber = IdUtil.simpleUUID();
+        return "调用成功 --> "+Thread.currentThread().getName()+" ,serialNumber: "+serialNumber;
+    }
+
+    public String paymentCircuitBreaker_fallback(@PathVariable("id") Integer id){
+        return "fallback(): id不能为负数 --> id: "+id;
+    }
+```
+
+controller层
+
+```java
+    //服务熔断
+    @GetMapping("/breaker/{id}")
+    public String paymentCircuitBreaker(@PathVariable("id") Integer id)
+    {
+        String result = paymentService.paymentCircuitBreaker(id);
+        log.info("breaker result --> {}"+result);
+        return result;
+    }
+```
+
+启动服务，访问：
+
+http://localhost:8001/payment/hystrix/breaker/2
+
+```
+调用成功 --> hystrix-PaymentServiceImpl-5 ,serialNumber: b836707606b54a9899cc32b558e79ef0
+```
+
+http://localhost:8001/payment/hystrix/breaker/-3
+
+```
+breaker result --> {}fallback(): id不能为负数 --> id: -3
+```
+
+使用JMeter多次访问breaker/-3接口，触发熔断，断路器开启，此时访问
+
+http://localhost:8001/payment/hystrix/breaker/2
+
+```
+breaker result --> {}fallback(): id不能为负数 --> id: 2
+```
+
+即便正常，也无法访问接口，直接走降级方法，之后自动恢复
+
+
+
+**熔断类型**
+
+- 熔断打开：请求不再进行调用当前服务，内部设置时钟一般为MTTR(平均故障处理时间)，当打开时长达到所设时钟则进入半熔断状态。
+- 熔断关闭：熔断关闭不会对服务进行熔断。
+- 熔断半开：部分请求根据规则调用当前服务，如果请求成功且符合规则则认为当前服务恢复正常，关闭熔断。
+
+**涉及到断路器的三个重要参数**
+
+* 快照时间窗：断路器确定是否打开需要统计一些请求和错误数据，而统计的时间范围就是快照时间窗，默认为最近的10秒。
+* 请求总数阀值：在快照时间窗内，必须满足请求总数阀值才有资格熔断。默认为20，意味着在10秒内，如果该hystrix命令的调用次数不足20次7,即使所有的请求都超时或其他原因失败，断路器都不会打开。
+* 错误百分比阀值：当请求总数在快照时间窗内超过了阀值，比如发生了30次调用，如果在这30次调用中，有15次发生了超时异常，也就是超过50%的错误百分比，在默认设定50%阀值情况下，这时候就会将断路器打开。
+  断路器开启或者关闭的条件
+
+到达以下阀值，断路器将会开启：
+
+* 当满足一定的阀值的时候（默认10秒内超过20个请求次数)
+* 当失败率达到一定的时候（默认10秒内超过50%的请求失败)
+* 当开启的时候，所有请求都不会进行转发
+
+一段时间之后（默认是5秒)，这个时候断路器是半开状态，会让其中一个请求进行转发。如果成功，断路器会关闭，若失败，继续开启。
+
+断路器打开之后
+
+1：再有请求调用的时候，将不会调用主逻辑，而是直接调用降级fallback。通过断路器，实现了自动地发现错误并将降级逻辑切换为主逻辑，减少响应延迟的效果。
+
+2：原来的主逻辑要如何恢复呢？
+
+对于这一问题，hystrix也为我们实现了自动恢复功能。
+
+当断路器打开，对主逻辑进行熔断之后，hystrix会启动一个休眠时间窗，在这个时间窗内，降级逻辑是临时的成为主逻辑，当休眠时间窗到期，断路器将进入半开状态，释放一次请求到原来的主逻辑上，如果此次请求正常返回，那么断路器将继续闭合，主逻辑恢复，如果这次请求依然有问题，断路器继续进入打开状态，休眠时间窗重新计时。
+
+服务降级 --> 服务熔断 --> 恢复调用链路
+
+
+
+
+
+`HystrixCommandProperties`配置类源码
+
+```java
+    /* defaults */
+    /* package */ static final Integer default_metricsRollingStatisticalWindow = 10000;// default => statisticalWindow: 10000 = 10 seconds (and default of 10 buckets so each bucket is 1 second)
+    private static final Integer default_metricsRollingStatisticalWindowBuckets = 10;// default => statisticalWindowBuckets: 10 = 10 buckets in a 10 second window so each bucket is 1 second
+    private static final Integer default_circuitBreakerRequestVolumeThreshold = 20;// default => statisticalWindowVolumeThreshold: 20 requests in 10 seconds must occur before statistics matter
+    private static final Integer default_circuitBreakerSleepWindowInMilliseconds = 5000;// default => sleepWindow: 5000 = 5 seconds that we will sleep before trying again after tripping the circuit
+    private static final Integer default_circuitBreakerErrorThresholdPercentage = 50;// default => errorThresholdPercentage = 50 = if 50%+ of requests in 10 seconds are failures or latent then we will trip the circuit
+    private static final Boolean default_circuitBreakerForceOpen = false;// default => forceCircuitOpen = false (we want to allow traffic)
+    /* package */ static final Boolean default_circuitBreakerForceClosed = false;// default => ignoreErrors = false 
+    private static final Integer default_executionTimeoutInMilliseconds = 1000; // default => executionTimeoutInMilliseconds: 1000 = 1 second
+    private static final Boolean default_executionTimeoutEnabled = true;
+    private static final ExecutionIsolationStrategy default_executionIsolationStrategy = ExecutionIsolationStrategy.THREAD;
+    private static final Boolean default_executionIsolationThreadInterruptOnTimeout = true;
+    private static final Boolean default_executionIsolationThreadInterruptOnFutureCancel = false;
+    private static final Boolean default_metricsRollingPercentileEnabled = true;
+    private static final Boolean default_requestCacheEnabled = true;
+    private static final Integer default_fallbackIsolationSemaphoreMaxConcurrentRequests = 10;
+    private static final Boolean default_fallbackEnabled = true;
+    private static final Integer default_executionIsolationSemaphoreMaxConcurrentRequests = 10;
+    private static final Boolean default_requestLogEnabled = true;
+    private static final Boolean default_circuitBreakerEnabled = true;
+    private static final Integer default_metricsRollingPercentileWindow = 60000; // default to 1 minute for RollingPercentile 
+    private static final Integer default_metricsRollingPercentileWindowBuckets = 6; // default to 6 buckets (10 seconds each in 60 second window)
+    private static final Integer default_metricsRollingPercentileBucketSize = 100; // default to 100 values max per bucket
+    private static final Integer default_metricsHealthSnapshotIntervalInMilliseconds = 500; // default to 500ms as max frequency between allowing snapshots of health (error percentage etc)
+
+    @SuppressWarnings("unused") private final HystrixCommandKey key;
+    private final HystrixProperty<Integer> circuitBreakerRequestVolumeThreshold; // number of requests that must be made within a statisticalWindow before open/close decisions are made using stats
+    private final HystrixProperty<Integer> circuitBreakerSleepWindowInMilliseconds; // milliseconds after tripping circuit before allowing retry
+    private final HystrixProperty<Boolean> circuitBreakerEnabled; // Whether circuit breaker should be enabled.
+    private final HystrixProperty<Integer> circuitBreakerErrorThresholdPercentage; // % of 'marks' that must be failed to trip the circuit
+    private final HystrixProperty<Boolean> circuitBreakerForceOpen; // a property to allow forcing the circuit open (stopping all requests)
+    private final HystrixProperty<Boolean> circuitBreakerForceClosed; // a property to allow ignoring errors and therefore never trip 'open' (ie. allow all traffic through)
+    private final HystrixProperty<ExecutionIsolationStrategy> executionIsolationStrategy; // Whether a command should be executed in a separate thread or not.
+    private final HystrixProperty<Integer> executionTimeoutInMilliseconds; // Timeout value in milliseconds for a command
+    private final HystrixProperty<Boolean> executionTimeoutEnabled; //Whether timeout should be triggered
+    private final HystrixProperty<String> executionIsolationThreadPoolKeyOverride; // What thread-pool this command should run in (if running on a separate thread).
+    private final HystrixProperty<Integer> executionIsolationSemaphoreMaxConcurrentRequests; // Number of permits for execution semaphore
+    private final HystrixProperty<Integer> fallbackIsolationSemaphoreMaxConcurrentRequests; // Number of permits for fallback semaphore
+    private final HystrixProperty<Boolean> fallbackEnabled; // Whether fallback should be attempted.
+    private final HystrixProperty<Boolean> executionIsolationThreadInterruptOnTimeout; // Whether an underlying Future/Thread (when runInSeparateThread == true) should be interrupted after a timeout
+    private final HystrixProperty<Boolean> executionIsolationThreadInterruptOnFutureCancel; // Whether canceling an underlying Future/Thread (when runInSeparateThread == true) should interrupt the execution thread
+    private final HystrixProperty<Integer> metricsRollingStatisticalWindowInMilliseconds; // milliseconds back that will be tracked
+    private final HystrixProperty<Integer> metricsRollingStatisticalWindowBuckets; // number of buckets in the statisticalWindow
+    private final HystrixProperty<Boolean> metricsRollingPercentileEnabled; // Whether monitoring should be enabled (SLA and Tracers).
+    private final HystrixProperty<Integer> metricsRollingPercentileWindowInMilliseconds; // number of milliseconds that will be tracked in RollingPercentile
+    private final HystrixProperty<Integer> metricsRollingPercentileWindowBuckets; // number of buckets percentileWindow will be divided into
+    private final HystrixProperty<Integer> metricsRollingPercentileBucketSize; // how many values will be stored in each percentileWindowBucket
+    private final HystrixProperty<Integer> metricsHealthSnapshotIntervalInMilliseconds; // time between health snapshots
+    private final HystrixProperty<Boolean> requestLogEnabled; // whether command request logging is enabled.
+    private final HystrixProperty<Boolean> requestCacheEnabled; // Whether request caching is enabled.
+```
+
+
+
+详细配置
+
+```java
+@HystrixCommand(fallbackMethod = "fallbackMethod", 
+                groupKey = "strGroupCommand", 
+                commandKey = "strCommand", 
+                threadPoolKey = "strThreadPool",
+                
+                commandProperties = {
+                    // 设置隔离策略，THREAD 表示线程池 SEMAPHORE：信号池隔离
+                    @HystrixProperty(name = "execution.isolation.strategy", value = "THREAD"),
+                    // 当隔离策略选择信号池隔离的时候，用来设置信号池的大小（最大并发数）
+                    @HystrixProperty(name = "execution.isolation.semaphore.maxConcurrentRequests", value = "10"),
+                    // 配置命令执行的超时时间
+                    @HystrixProperty(name = "execution.isolation.thread.timeoutinMilliseconds", value = "10"),
+                    // 是否启用超时时间
+                    @HystrixProperty(name = "execution.timeout.enabled", value = "true"),
+                    // 执行超时的时候是否中断
+                    @HystrixProperty(name = "execution.isolation.thread.interruptOnTimeout", value = "true"),
+                    
+                    // 执行被取消的时候是否中断
+                    @HystrixProperty(name = "execution.isolation.thread.interruptOnCancel", value = "true"),
+                    // 允许回调方法执行的最大并发数
+                    @HystrixProperty(name = "fallback.isolation.semaphore.maxConcurrentRequests", value = "10"),
+                    // 服务降级是否启用，是否执行回调函数
+                    @HystrixProperty(name = "fallback.enabled", value = "true"),
+                    // 是否启用断路器
+                    @HystrixProperty(name = "circuitBreaker.enabled", value = "true"),
+                    // 该属性用来设置在滚动时间窗中，断路器熔断的最小请求数。例如，默认该值为 20 的时候，如果滚动时间窗（默认10秒）内仅收到了19个请求， 即使这19个请求都失败了，断路器也不会打开。
+                    @HystrixProperty(name = "circuitBreaker.requestVolumeThreshold", value = "20"),
+                    
+                    // 该属性用来设置在滚动时间窗中，表示在滚动时间窗中，在请求数量超过 circuitBreaker.requestVolumeThreshold 的情况下，如果错误请求数的百分比超过50, 就把断路器设置为 "打开" 状态，否则就设置为 "关闭" 状态。
+                    @HystrixProperty(name = "circuitBreaker.errorThresholdPercentage", value = "50"),
+                    // 该属性用来设置当断路器打开之后的休眠时间窗。 休眠时间窗结束之后，会将断路器置为 "半开" 状态，尝试熔断的请求命令，如果依然失败就将断路器继续设置为 "打开" 状态，如果成功就设置为 "关闭" 状态。
+                    @HystrixProperty(name = "circuitBreaker.sleepWindowinMilliseconds", value = "5000"),
+                    // 断路器强制打开
+                    @HystrixProperty(name = "circuitBreaker.forceOpen", value = "false"),
+                    // 断路器强制关闭
+                    @HystrixProperty(name = "circuitBreaker.forceClosed", value = "false"),
+                    // 滚动时间窗设置，该时间用于断路器判断健康度时需要收集信息的持续时间
+                    @HystrixProperty(name = "metrics.rollingStats.timeinMilliseconds", value = "10000"),
+                    
+                    // 该属性用来设置滚动时间窗统计指标信息时划分"桶"的数量，断路器在收集指标信息的时候会根据设置的时间窗长度拆分成多个 "桶" 来累计各度量值，每个"桶"记录了一段时间内的采集指标。
+                    // 比如 10 秒内拆分成 10 个"桶"收集这样，所以 timeinMilliseconds 必须能被 numBuckets 整除。否则会抛异常
+                    @HystrixProperty(name = "metrics.rollingStats.numBuckets", value = "10"),
+                    // 该属性用来设置对命令执行的延迟是否使用百分位数来跟踪和计算。如果设置为 false, 那么所有的概要统计都将返回 -1。
+                    @HystrixProperty(name = "metrics.rollingPercentile.enabled", value = "false"),
+                    // 该属性用来设置百分位统计的滚动窗口的持续时间，单位为毫秒。
+                    @HystrixProperty(name = "metrics.rollingPercentile.timeInMilliseconds", value = "60000"),
+                    // 该属性用来设置百分位统计滚动窗口中使用 “ 桶 ”的数量。
+                    @HystrixProperty(name = "metrics.rollingPercentile.numBuckets", value = "60000"),
+                    // 该属性用来设置在执行过程中每个 “桶” 中保留的最大执行次数。如果在滚动时间窗内发生超过该设定值的执行次数，
+                    // 就从最初的位置开始重写。例如，将该值设置为100, 滚动窗口为10秒，若在10秒内一个 “桶 ”中发生了500次执行，
+                    // 那么该 “桶” 中只保留 最后的100次执行的统计。另外，增加该值的大小将会增加内存量的消耗，并增加排序百分位数所需的计算时间。
+                    @HystrixProperty(name = "metrics.rollingPercentile.bucketSize", value = "100"),
+                    
+                    // 该属性用来设置采集影响断路器状态的健康快照（请求的成功、 错误百分比）的间隔等待时间。
+                    @HystrixProperty(name = "metrics.healthSnapshot.intervalinMilliseconds", value = "500"),
+                    // 是否开启请求缓存
+                    @HystrixProperty(name = "requestCache.enabled", value = "true"),
+                    // HystrixCommand的执行和事件是否打印日志到 HystrixRequestLog 中
+                    @HystrixProperty(name = "requestLog.enabled", value = "true"),
+
+                },
+                threadPoolProperties = {
+                    // 该参数用来设置执行命令线程池的核心线程数，该值也就是命令执行的最大并发量
+                    @HystrixProperty(name = "coreSize", value = "10"),
+                    // 该参数用来设置线程池的最大队列大小。当设置为 -1 时，线程池将使用 SynchronousQueue 实现的队列，否则将使用 LinkedBlockingQueue 实现的队列。
+                    @HystrixProperty(name = "maxQueueSize", value = "-1"),
+                    // 该参数用来为队列设置拒绝阈值。 通过该参数， 即使队列没有达到最大值也能拒绝请求。
+                    // 该参数主要是对 LinkedBlockingQueue 队列的补充,因为 LinkedBlockingQueue 队列不能动态修改它的对象大小，而通过该属性就可以调整拒绝请求的队列大小了。
+                    @HystrixProperty(name = "queueSizeRejectionThreshold", value = "5"),
+                }
+               )
+public String doSomething() {
+	...
+}
+```
+
+
+
+#### Hystrix工作流程
+
+流程图：原图地址：[hystrix-command-flow-chart.png (1372×667) (raw.githubusercontent.com)](https://raw.githubusercontent.com/wiki/Netflix/Hystrix/images/hystrix-command-flow-chart.png)
+
+![Hystrix工作流程图](https://github.com/Netflix/Hystrix/wiki/images/hystrix-command-flow-chart.png)
+
+
+
+**步骤说明**
+
+创建HystrixCommand （用在依赖的服务返回单个操作结果的时候）或HystrixObserableCommand（用在依赖的服务返回多个操作结果的时候）对象。
+命令执行。
+其中 HystrixCommand实现了下面前两种执行方式
+execute()：同步执行，从依赖的服务返回一个单一的结果对象或是在发生错误的时候抛出异常。
+2. queue()：异步执行，直接返回一个Future对象，其中包含了服务执行结束时要返回的单一结果对象。
+而 HystrixObservableCommand实现了后两种执行方式：
+obseve()：返回Observable对象，它代表了操作的多个统
+果，它是一个Hot Observable （不论“事件源”是否有“订阅者”，都会在创建后对事件进行发布，所以对于Hot Observable的每一个“订阅者”都有可能是从“事件源”的中途开始的，并可能只是看到了整个操作的局部过程）。
+2. toObservable()：同样会返回Observable对象，也代表了操作的多个结果，但它返回的是一个Cold Observable（没有“订间者”的时候并不会发布事件，而是进行等待，直到有“订阅者"之后才发布事件，所以对于Cold Observable 的订阅者，它可以保证从一开始看到整个操作的全部过程）。
+若当前命令的请求缓存功能是被启用的，并且该命令缓存命中，那么缓存的结果会立即以Observable对象的形式返回。
+检查断路器是否为打开状态。如果断路器是打开的，那么Hystrix不会执行命令，而是转接到fallback处理逻辑(第8步)；如果断路器是关闭的，检查是否有可用资源来执行命令(第5步)。
+线程池/请求队列信号量是否占满。如果命令依赖服务的专有线程地和请求队列，或者信号量（不使用线程的时候）已经被占满，那么Hystrix也不会执行命令，而是转接到fallback处理理辑(第8步) 。
+Hystrix会根据我们编写的方法来决定采取什么样的方式去请求依赖服务。
+HystrixCommand.run()：返回一个单一的结果，或者抛出异常。
+HystrixObservableCommand.construct()：返回一个Observable对象来发射多个结果，或通过onError发送错误通知。
+Hystix会将“成功”、“失败”、“拒绝”、“超时” 等信息报告给断路器，而断路器会维护一组计数器来统计这些数据。断路器会使用这些统计数据来决定是否要将断路器打开，来对某个依赖服务的请求进行"熔断/短路"。
+当命令执行失败的时候，Hystix会进入fallback尝试回退处理，我们通常也称波操作为“服务降级”。而能够引起服务降级处理的情况有下面几种：
+第4步∶当前命令处于“熔断/短路”状态，断洛器是打开的时候。
+第5步∶当前命令的钱程池、请求队列或者信号量被占满的时候。
+第6步∶HystrixObsevableCommand.construct()或HytrixCommand.run()抛出异常的时候。
+当Hystrix命令执行成功之后，它会将处理结果直接返回或是以Observable的形式返回。
+tips：如果我们没有为命令实现降级逻辑或者在降级处理逻辑中抛出了异常，Hystrix依然会运回一个Obsevable对象，但是它不会发射任结果数惯，而是通过onError方法通知命令立即中断请求，并通过onError方法将引起命令失败的异常发送给调用者。
+
+#### 服务监控HystrixDashboard
+
+##### 概述
+
+除了隔离依赖服务的调用以外，Hystrix还提供了准实时的调用监控(Hystrix Dashboard)，Hystrix会持续地记录所有通过Hystrix发起的请求的执行信息，并以统计报表和图形的形式展示给用户，包括每秒执行多少请求多少成功，多少失败等。
+
+Netflix通过hystrix-metrics-event-stream项目实现了对以上指标的监控。Spring Cloud也提供了Hystrix Dashboard的整合，对监控内容转化成可视化界面。
+
+Netflix通过hystrix-metrics-event-stream项目实现了对以上指标的监控。而在spring cloud中，只有引入spring-cloud-starter-hystrix这一启动依赖，就会默认引入hystrix-metrics-event-stream依赖。
+
+##### HystrixDashboard案例
+
+创建监控模块cloud-consumer-hystrix-dashboard9001
+
+pom.xml
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <parent>
+        <artifactId>cloud2021</artifactId>
+        <groupId>com.hyd.springcloud</groupId>
+        <version>1.0-SNAPSHOT</version>
+    </parent>
+    <modelVersion>4.0.0</modelVersion>
+    <artifactId>cloud-consumer-hystrix-dashboard9001</artifactId>
+
+    <dependencies>
+        <dependency>
+            <!-- hystrix dashboard 仪表盘监控 -->
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-netflix-hystrix-dashboard</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-devtools</artifactId>
+            <scope>runtime</scope>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>
+```
+
+application.yaml
+
+```yaml
+server:
+  port: 9001
+```
+
+启动类
+
+```java
+package com.hyd.springcloud;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.cloud.netflix.hystrix.dashboard.EnableHystrixDashboard;
+
+@SpringBootApplication
+@EnableHystrixDashboard//开启hystrix dashboard
+public class HystrixDashboardMain9001 {
+    public static void main(String[] args) {
+        SpringApplication.run(HystrixDashboardMain9001.class,args);
+    }
+}
+```
+
+监控的目标服务，必须具备两个条件。第一，服务本身有对Hystrix做监控统计(spring-cloud-starter-hystrix启动依赖)；第二，暴露hystrix.stream端口(spring-boot-starter-actuator启动依赖)。所以需要确保目标服务引入如下依赖：
+
+```xml
+<!-- hystrix -->
+<dependency>
+    <groupId>org.springframework.cloud</groupId>
+    <artifactId>spring-cloud-starter-netflix-hystrix</artifactId>
+</dependency>
+<!-- actuator -->
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-actuator</artifactId>
+</dependency>
+```
+
+
+
+然后在子模块cloud-provider-hystrix-payment8001中，添加如下配置，暴露hystrix监控端点
+
+```yaml
+# 被监控的hystrix-service服务需要开启Actuator的hystrix.stream端点
+management:
+  endpoints:
+    web:
+      exposure:
+        include: "hystrix.stream" # 暴露hystrix监控端点
+```
+
+启动服务，访问Hystrix Dashboard图形化界面 http://localhost:9001/hystrix
+
+输入要监控的服务：http://127.0.0.1:8001/actuator/hystrix.stream
+
+（注意：部分版本地址为：http://127.0.0.1:8001/hystrix.stream）
+
+就可以看到监控仪表盘界面了
+
+
+
+---
+
+## 服务网关
+
+### 概述
+
 //TODO
+
+### Zuul
+
+//TODO
+
+### Gateway
+
+//TODO
+

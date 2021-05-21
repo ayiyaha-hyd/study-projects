@@ -20,3 +20,6 @@ spring-cloud-study-001/cloud-consumer-feign-order80/target/
 spring-cloud-study-001/cloud-consumerzk-order80/target/
 spring-cloud-study-001/cloud-providerconsul-payment8005/target/
 spring-cloud-study-001/cloud-provider-payment8004/target/
+spring-cloud-study-001/cloud-consumer-feign-hystrix-order80/target/
+spring-cloud-study-001/cloud-consumer-hystrix-dashboard9001/target/
+spring-cloud-study-001/cloud-provider-hystrix-payment8001/target/

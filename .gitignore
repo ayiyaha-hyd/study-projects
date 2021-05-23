@@ -23,3 +23,5 @@ spring-cloud-study-001/cloud-provider-payment8004/target/
 spring-cloud-study-001/cloud-consumer-feign-hystrix-order80/target/
 spring-cloud-study-001/cloud-consumer-hystrix-dashboard9001/target/
 spring-cloud-study-001/cloud-provider-hystrix-payment8001/target/
+spring-cloud-study-001/cloud-gateway-gateway9527/target/
+spring-cloud-study-001/cloud-zuul-gateway9527/target/

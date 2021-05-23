@@ -1,0 +1,20 @@
+server:
+  port: 9527
+spring:
+  application:
+    name: cloud-zuul-gateway9527
+eureka:
+  client:
+    service-url:
+      defaultZone: http://cloud-eureka-server7001:7001/eureka/, http://cloud-eureka-server7002:7002/eureka/, http://cloud-eureka-server7003:7003/eureka/ #集群版
+  instance:
+    instance-id: gateway9527
+    prefer-ip-address: true
+#  Zuul路由访问映射规则
+zuul:
+  prefix: /hyd # 增加统一的访问前缀
+  ignored-services: "*" # 忽略所有的服务名称
+  routes:
+    payment8001: # 此处名称随便起
+      service-id: cloud-provider-hystrix-payment # 映射的服务id名
+      path: /payment8001/** # 映射路径

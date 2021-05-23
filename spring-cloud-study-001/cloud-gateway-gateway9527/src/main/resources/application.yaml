@@ -1,0 +1,33 @@
+server:
+  port: 9527
+spring:
+  application:
+    name: cloud-gateway-gateway9527 # 应用名
+# <-- ***start*** Spring Cloud Gateway 网关配置
+  cloud:
+    gateway: # 网关
+      discovery:
+        locator:
+          enabled: true # 开启从注册中心动态创建路由的功能，利用微服务名进行路由
+      routes: # 路由
+        - id: payment_route # 路由的ID，没有固定规则但要求唯一，建议配合服务名
+#          uri: http://localhost:8001 # 匹配后提供服务的路由地址
+          uri: lb://cloud-payment-service # 动态路由后，gateway负载均衡uri
+          predicates:
+            - Path=/payment/get/** # 断言，路径相匹配的进行路由
+        - id: payment_route2
+#          uri: http://localhost:8001
+          uri: lb://cloud-payment-service
+          predicates:
+            - Path=/payment/lb/**
+#     ***end*** -->
+eureka:
+  instance:
+#    hostname: gateway-haha # 应用实例主机名，缺省默认为windows计算机主机名
+    hostname: ${spring.cloud.client.ip-address} # 设置主机名为主机ip
+    appname: cloud-gateway-service # 服务名，默认取 spring.application.name 配置值，如果没有则为 unknown
+    instance-id: ${spring.cloud.client.ip-address}:${server.port} # 实例ID:此处为id+端口
+    prefer-ip-address: false # 客户端在注册时使用自己的IP而不是主机名
+  client:
+    service-url:
+      defaultZone: http://cloud-eureka-server7001:7001/eureka/, http://cloud-eureka-server7002:7002/eureka/, http://cloud-eureka-server7003:7003/eureka/ #集群版

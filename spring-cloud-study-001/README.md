@@ -7,9 +7,7 @@ SpringCloud学习
 
 ---
 
-## 入门
-
-版本选择
+## 版本选择
 
 上篇：SpirngBoot2.X版和SpringCloud H版
 下篇：SpringCloud Alibaba版
@@ -776,6 +774,8 @@ pom.xml
   它是一个Java客户端，用于简化Eureka Server的交互，客户端同时也具备一个内置的、使用轮询(round-robin)负载算法的负载均衡器。在应用启动后，将会向Eureka Server发送心跳(默认周期为30秒)。如果Eureka Server在多个心跳周期内没有接收到某个节点的心跳，EurekaServer将会从服务注册表中把这个服务节点移除（默认90秒)。
 
 
+
+Eureka application.yaml配置：[eureka hostname作用_【springcloud】Eureka 常用配置解析_张笑笑的酒窝的博客-CSDN博客](https://blog.csdn.net/weixin_42298645/article/details/112043261)
 
 #### 单机版Eureka构建步骤
 
@@ -4388,9 +4388,1044 @@ management:
 
 ### Zuul
 
+#### 概述
+
+##### 是什么
+
+官网：[Netflix/zuul: Zuul is a gateway service that provides dynamic routing, monitoring, resiliency, security, and more. (github.com)](https://github.com/Netflix/zuul)
+
+**功能**
+
+* 代理+路由+过滤
+
+**Zuul包含了对请求的路由和过滤两个最主要的功能**：
+
+其中路由功能负责将外部请求转发到具体的微服务实例上，是实现外部访问统一入口的基础；而过滤器功能则负责对请求的处理过程进行干预，是实现请求校验、服务聚合等功能的基础。Zuul和Eureka进行整合，将Zuul自身注册为Eureka服务治理下的应用，同时从Eureka中获得其他微服务的消息，也即以后的访问微服务都是通过Zuul跳转后获得的。
+
+注意：Zuul服务最终还是会注册进Eureka
+
+
+
+#### 路由基本配置
+
+创建子模块cloud-zuul-gateway9527
+
+pom.xml
+
+```xml
+        <!-- zuul -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-netflix-zuul</artifactId>
+        </dependency>
+        <!-- eureka client -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
+        </dependency>
+```
+
+application.yaml
+
+```yaml
+server:
+  port: 9527
+spring:
+  application:
+    name: cloud-zuul-gateway9527
+eureka:
+  client:
+    service-url:
+      defaultZone: http://cloud-eureka-server7001:7001/eureka/, http://cloud-eureka-server7002:7002/eureka/, http://cloud-eureka-server7003:7003/eureka/ #集群版
+  instance:
+    instance-id: gateway9527
+    prefer-ip-address: true
+```
+
+启动类
+
+```java
+@SpringBootApplication
+@EnableZuulProxy
+public class ZuulMain9527 {
+    public static void main(String[] args) {
+        SpringApplication.run(ZuulMain9527.class,args);
+    }
+}
+
+```
+
+Zuul网关 @EnableZuulProxy 和 @EnableZuulServer 的区别
+
+@EnableZuulProxy简单理解为@EnableZuulServer的增强版， 当Zuul与Eureka、Ribbon等组件配合使用时，我们使用@EnableZuulProxy。
+
+
+
+修改Windows host文件主机映射配置：
+
+```
+# Zuul映射配置
+127.0.0.1       cloud-zuul-gateway9527
+```
+
+
+
+启动服务，访问：
+
+http://localhost:8001/payment/hystrix/ok/1
+
+```
+线程池: http-nio-8001-exec-1 ,paymentInfo_OK ,id: 1
+```
+
+通过Zuul网关访问：
+
+http://cloud-zuul-gateway9527:9527/cloud-provider-hystrix-payment/payment/hystrix/ok/1
+
+http://localhost:9527/cloud-provider-hystrix-payment/payment/hystrix/ok/1
+
+```
+线程池: http-nio-8001-exec-6 ,paymentInfo_OK ,id: 1
+```
+
+
+
+
+
+#### 路由访问映射规则
+
+修改Zuul模块application.yaml配置
+
+配置
+
+```yaml
+#  Zuul路由访问映射规则
+zuul:
+  routes:
+    payment.serviceId: cloud-provider-hystrix-payment
+    payment.path: /payment8001/**
+```
+
+或者：
+
+```yaml
+#  Zuul路由访问映射规则
+zuul:
+  routes:
+    payment8001: # 此处名称随便起
+      serviceId: cloud-provider-hystrix-payment # 映射的服务id名
+      path: /payment8001/** # 映射路径
+```
+
+serviceId可以写为service-id
+
+启动服务，访问：http://cloud-zuul-gateway9527:9527/payment8001/payment/hystrix/ok/1
+
+```
+线程池: http-nio-8001-exec-5 ,paymentInfo_OK ,id: 1
+```
+
+**忽略原真实服务名，设置统一公共前缀**
+
+此时，原访问路径和通过Zuul路由访问路径都可以进行服务访问
+
+限制不能通过访问服务名去访问微服务
+
+```yaml
+ignored-services: cloud-provider-hystrix-payment
+```
+
+如果想把其他很多的微服务都通过配置忽略掉真实访问路径则直接使用`"*"`来代替
+
+修改application.yaml
+
+```yaml
+#  Zuul路由访问映射规则
+zuul:
+  prefix: /hyd # 增加统一的访问前缀
+  ignored-services: "*" # 忽略所有的服务名称
+  routes:
+    payment8001: # 此处名称随便起
+      service-id: cloud-provider-hystrix-payment # 映射的服务id名
+      path: /payment8001/** # 映射路径
+```
+
+启动服务，访问：http://cloud-zuul-gateway9527:9527/hyd/payment8001/payment/hystrix/ok/1
+
+```
+线程池: http-nio-8001-exec-7 ,paymentInfo_OK ,id: 1
+```
+
+直接访问服务：http://cloud-zuul-gateway9527:9527/hyd/cloud-provider-hystrix-payment/payment/hystrix/ok/1
+
+```json
+{
+    "timestamp": "2021-05-22T05:47:33.377+0000",
+    "status": 404,
+    "error": "Not Found",
+    "message": "No message available",
+    "path": "/hyd/cloud-provider-hystrix-payment/payment/hystrix/ok/1"
+}
+```
+
+#### 查看路由信息
+
 //TODO
 
-### Gateway
+#### 过滤器
 
 //TODO
 
+
+
+### Spring Cloud Gateway
+
+#### 概念简介
+
+##### 官网
+
+Cloud全家桶中有个很重要的组件就是网关，在1.x版本中都是采用的Zuul网关;
+
+但在2.x版本中，zuul的升级一直跳票，SpringCloud最后自己研发了一个网关替代Zuul，那就是SpringCloud Gateway—句话：gateway是原zuul1.x版的替代
+
+2.2.8文档地址：[Spring Cloud Gateway](https://docs.spring.io/spring-cloud-gateway/docs/2.2.8.RELEASE/reference/html/)
+
+##### 是什么
+
+Gateway是在Spring生态系统之上构建的API网关服务，基于Spring 5，Spring Boot 2和Project Reactor等技术。
+
+Gateway旨在提供一种简单而有效的方式来对API进行路由，以及提供一些强大的过滤器功能，例如:熔断、限流、重试等。
+
+SpringCloud Gateway是Spring Cloud的一个全新项目，基于Spring 5.0+Spring Boot 2.0和Project Reactor等技术开发的网关，它旨在为微服务架构提供—种简单有效的统一的API路由管理方式。
+
+SpringCloud Gateway作为Spring Cloud 生态系统中的网关，目标是替代Zuul，在Spring Cloud 2.0以上版本中，没有对新版本的Zul 2.0以上最新高性能版本进行集成，仍然还是使用的Zuul 1.x非Reactor模式的老版本。而为了提升网关的性能，SpringCloud Gateway是基于WebFlux框架实现的，而WebFlux框架底层则使用了高性能的Reactor模式通信框架Netty。
+
+##### 能干什么
+
+Spring Cloud Gateway的目标提供统一的路由方式且基于 Filter链的方式提供了网关基本的功能，例如:安全，监控/指标，和限流。
+
+作用
+
+* 反向代理
+* 鉴权
+* 流量控制
+* 熔断
+* 日志监控
+* …
+
+**简介**
+
+* SpringCloud Gateway使用的是WebFlux中的reactor-netty响应式编程组件，底层使用了Netty通信框架。
+
+##### 微服务架构中网关在哪里
+
+![微服务图](https://spring.io/images/diagram-microservices-88e01c7d34c688cb49556435c130d352.svg)
+
+##### 为什么用Gateway替代Zuul
+
+###### 为什么选择Gateway
+
+* netflix不太靠谱，zuul2.0一直跳票，迟迟不发布。
+  * 一方面因为Zuul1.0已经进入了维护阶段，而且Gateway是SpringCloud团队研发的，是亲儿子产品，值得信赖。而且很多功能Zuul都没有用起来也非常的简单便捷。
+  * Gateway是基于异步非阻塞模型上进行开发的，性能方面不需要担心。虽然Netflix早就发布了最新的Zuul 2.x，但Spring Cloud貌似没有整合计划。而且Netflix相关组件都宣布进入维护期；不知前景如何?
+    多方面综合考虑Gateway是很理想的网关选择。
+
+* SpringCloud Gateway具有如下特性
+  * 基于Spring Framework 5，Project Reactor和Spring Boot 2.0进行构建（稳健，同一家族）；
+  * 动态路由：能够匹配任何请求属性；
+  * 可以对路由指定Predicate (断言)和Filter(过滤器)；
+  * 集成Hystrix的断路器功能；
+  * 集成Spring Cloud 服务发现功能；
+  * 易于编写的Predicate (断言)和Filter (过滤器)；
+  * 请求限流功能；
+  * 支持路径重写。
+
+##### SpringCloud Gateway与Zuul的区别
+
+* 在SpringCloud Finchley正式版之前，Spring Cloud推荐的网关是Netflix提供的Zuul。
+* Zuul 1.x，是一个基于阻塞I/O的API Gateway。Zuul 1.x基于Servlet 2.5使用阻塞架构它不支持任何长连接(如WebSocket)Zuul的设计模式和Nginx较像，每次I/О操作都是从工作线程中选择一个执行，请求线程被阻塞到工作线程完成，但是差别是Nginx用C++实现，Zuul用Java实现，而JVM本身会有第-次加载较慢的情况，使得Zuul的性能相对较差。
+* Zuul 2.x理念更先进，想基于Netty非阻塞和支持长连接，但SpringCloud目前还没有整合。Zuul .x的性能较Zuul 1.x有较大提升。在性能方面，根据官方提供的基准测试,Spring Cloud Gateway的RPS(每秒请求数)是Zuul的1.6倍。
+* Spring Cloud Gateway建立在Spring Framework 5、Project Reactor和Spring Boot2之上，使用非阻塞API。
+* Spring Cloud Gateway还支持WebSocket，并且与Spring紧密集成拥有更好的开发体验
+
+##### Zuul 1.x模型
+
+Springcloud中所集成的Zuul版本，采用的是Tomcat容器，使用的是传统的Serviet IO处理模型。
+
+Servlet的生命周期？servlet由servlet container进行生命周期管理。
+
+* container启动时构造servlet对象并调用servlet init()进行初始化；
+* container运行时接受请求，并为每个请求分配一个线程（一般从线程池中获取空闲线程）然后调用service)；
+* container关闭时调用servlet destory()销毁servlet。 
+
+##### Gateway模型
+
+WebFlux是什么？官方文档：https://docs.spring.io/spring/docs/current/spring-framework-reference/web-reactive.html#spring-webflux
+
+传统的Web框架，比如说: Struts2，SpringMVC等都是基于Servlet APl与Servlet容器基础之上运行的。
+
+但是在Servlet3.1之后有了异步非阻塞的支持。而WebFlux是一个典型非阻塞异步的框架，它的核心是基于Reactor的相关API实现的。相对于传统的web框架来说，它可以运行在诸如Netty，Undertow及支持Servlet3.1的容器上。非阻塞式+函数式编程(Spring 5必须让你使用Java 8)。
+
+Spring WebFlux是Spring 5.0 引入的新的响应式框架，区别于Spring MVC，它不需要依赖Servlet APl，它是完全异步非阻塞的，并且基于Reactor来实现响应式流规范。
+
+##### 三大核心概念
+
+* Route(路由) - 路由是构建网关的基本模块,它由ID,目标URI,一系列的断言和过滤器组成,如断言为true则匹配该路由；
+* Predicate(断言) - 参考的是Java8的java.util.function.Predicate，开发人员可以匹配HTTP请求中的所有内容(例如请求头或请求参数),如果请求与断言相匹配则进行路由；
+* Filter(过滤) - 指的是Spring框架中GatewayFilter的实例,使用过滤器,可以在请求被路由前或者之后对请求进行修改。
+
+web请求，通过一些匹配条件，定位到真正的服务节点。并在这个转发过程的前后，进行一些精细化控制。
+
+predicate就是我们的匹配条件；而fliter，就可以理解为一个无所不能的拦截器。有了这两个元素，再加上目标uri，就可以实现一个具体的路由了。
+
+//TODO
+
+#### Gateway工作流程
+
+工作流程图
+
+![工作流程图](https://cloud.spring.io/spring-cloud-static/spring-cloud-gateway/2.2.1.RELEASE/reference/html/images/spring_cloud_gateway_diagram.png)
+
+客户端向Spring Cloud Gateway发出请求。然后在Gateway Handler Mapping 中找到与请求相匹配的路由，将其发送到GatewayWeb Handler。
+
+Handler再通过指定的过滤器链来将请求发送到我们实际的服务执行业务逻辑，然后返回。
+
+过滤器之间用虚线分开是因为过滤器可能会在发送代理请求之前(“pre”)或之后(“post"）执行业务逻辑。
+
+Filter在“pre”类型的过滤器可以做参数校验、权限校验、流量监控、日志输出、协议转换等，在“post”类型的过滤器中可以做响应内容、响应头的修改，日志的输出，流量监控等有着非常重要的作用。
+
+核心逻辑：路由转发 + 执行过滤器链。
+
+#### 入门配置
+
+//TODO
+
+创建gateway子模块
+
+pom.xml
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <parent>
+        <artifactId>cloud2021</artifactId>
+        <groupId>com.hyd.springcloud</groupId>
+        <version>1.0-SNAPSHOT</version>
+    </parent>
+    <modelVersion>4.0.0</modelVersion>
+    <artifactId>cloud-gateway-gateway9527</artifactId>
+    <dependencies>
+        <!-- spring cloud gateway -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-gateway</artifactId>
+        </dependency>
+        <!-- eureka client -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
+        </dependency>
+        <!-- 引入自定义api通用包 -->
+        <dependency>
+            <groupId>com.hyd.springcloud</groupId>
+            <artifactId>cloud-api-commons</artifactId>
+            <version>1.0-SNAPSHOT</version>
+        </dependency>
+        <!--一般基础配置类-->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-devtools</artifactId>
+            <scope>runtime</scope>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>
+```
+
+application.yaml
+
+此处`hostname: ${spring.cloud.client.ipAddress}`在spring cloud 2.x版本中改为${spring.cloud.client.ip-address}
+
+```yaml
+server:
+  port: 9527
+spring:
+  application:
+    name: cloud-gateway-gateway9527 # 应用名
+eureka:
+  instance:
+#    hostname: gateway-haha # 应用实例主机名，缺省默认为windows计算机主机名
+    hostname: ${spring.cloud.client.ip-address} # 设置主机名为主机ip
+    appname: cloud-gateway-service # 服务名，默认取 spring.application.name 配置值，如果没有则为 unknown
+    instance-id: ${spring.cloud.client.ip-address}:${server.port} # 实例ID:此处为id+端口
+    prefer-ip-address: false # 客户端在注册时使用自己的IP而不是主机名
+  client:
+    service-url:
+      defaultZone: http://cloud-eureka-server7001:7001/eureka/, http://cloud-eureka-server7002:7002/eureka/, http://cloud-eureka-server7003:7003/eureka/ #集群版
+```
+
+启动类
+
+```java
+package com.hyd.springcloud;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.cloud.netflix.eureka.EnableEurekaClient;
+
+@SpringBootApplication
+@EnableEurekaClient
+public class GatewayMain9527 {
+    public static void main(String[] args) {
+        SpringApplication.run(GatewayMain9527.class,args);
+    }
+}
+
+```
+
+启动服务，访问：http://localhost:8001/payment/get/11
+
+```json
+{
+    "code": 200,
+    "message": "查询成功 --- port: 8001",
+    "data": {
+        "id": 11,
+        "serial": "test011"
+    }
+}
+```
+
+到此处，搭建了基本框架，没有进行路由配置，接下来进行路由配置
+
+##### Spring Cloud Gateway配置路由的两种方式
+
+###### 配置文件application.yaml配置
+
+修改application.yaml
+
+注意gateway不需要引入web依赖，否则可能报错
+
+```yaml
+spring:
+  application:
+    name: cloud-gateway-gateway9527 # 应用名
+# <-- ***start*** Spring Cloud Gateway 网关配置
+  cloud:
+    gateway: # 网关
+      routes: # 路由
+        - id: payment_route # 路由的ID，没有固定规则但要求唯一，建议配合服务名
+          uri: http://localhost:8001 # 匹配后提供服务的路由地址
+          predicates:
+            - Path=/payment/get/** # 断言，路径相匹配的进行路由
+        - id: payment_route2
+          uri: http://localhost:8001
+          predicates:
+            - Path=/payment/lb/**
+#     ***end*** -->
+```
+
+启动服务，访问：http://localhost:8001/payment/lb
+
+```
+server port: 8001
+```
+
+访问路由配置后的地址：http://localhost:9527/payment/lb
+
+```
+server port: 8001
+```
+
+完成
+
+###### 编码配置
+
+案例：通过编码配置，经9527网关访问到外网：http://news.baidu.com/guonei
+
+官网示例：
+
+```java
+@Bean
+public RouteLocator routes(RouteLocatorBuilder builder) {
+    return builder.routes()
+        .route("circuitbreaker_route", r -> r.path("/consumingServiceEndpoint")
+            .filters(f -> f.circuitBreaker(c -> c.name("myCircuitBreaker").fallbackUri("forward:/inCaseOfFailureUseThis").addStatusCode("INTERNAL_SERVER_ERROR"))
+                .rewritePath("/consumingServiceEndpoint", "/backingServiceEndpoint")).uri("lb://backing-service:8088")
+        .build();
+}
+```
+
+官方文档地址：[Spring Cloud Gateway](https://docs.spring.io/spring-cloud-gateway/docs/2.2.8.RELEASE/reference/html/#circuit-breaker-status-codes)
+
+新建配置类，进行配置
+
+```java
+package com.hyd.springcloud.config;
+
+import org.springframework.cloud.gateway.route.RouteLocator;
+import org.springframework.cloud.gateway.route.builder.RouteLocatorBuilder;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+@Configuration
+public class GatewayConfig {
+    @Bean
+    public RouteLocator routes(RouteLocatorBuilder routeLocatorBuilder){
+        RouteLocatorBuilder.Builder routes = routeLocatorBuilder.routes();
+        routes.route(
+                "route1",r ->r.path("/news").uri("http://news.baidu.com/guonei")
+        );
+        return routes.build();
+    }
+}
+
+```
+
+成功，结果略
+
+
+
+#### 动态路由
+
+默认情况下Gateway会根据注册中心注册的服务列表，以注册中心上微服务名为路径创建**动态路由进行转发，从而实现动态路由的功能**（不写死一个地址）。
+
+启动Eureka server7001,7002,7003,启动payment8001,8002,8003,启动网关gateway9527
+
+修改网关application.yaml配置，开启动态路由，修改url协议为lb，表示启用Gateway的负载均衡功能。
+
+```yaml
+# <-- ***start*** Spring Cloud Gateway 网关配置
+  cloud:
+    gateway: # 网关
+      discovery:
+        locator:
+          enabled: true # 开启从注册中心动态创建路由的功能，利用微服务名进行路由
+      routes: # 路由
+        - id: payment_route # 路由的ID，没有固定规则但要求唯一，建议配合服务名
+#          uri: http://localhost:8001 # 匹配后提供服务的路由地址
+          uri: lb://cloud-payment-service # 动态路由后，gateway负载均衡uri
+          predicates:
+            - Path=/payment/get/** # 断言，路径相匹配的进行路由
+        - id: payment_route2
+#          uri: http://localhost:8001
+          uri: lb://cloud-payment-service
+          predicates:
+            - Path=/payment/lb/**
+#     ***end*** -->
+```
+
+启动服务，访问：http://localhost:9527/payment/lb
+
+```
+server port: 8003;
+server port: 8001;
+server port: 8002;
+...
+```
+
+
+
+#### Predicate（断言）的使用
+
+启动我们的gateway网关，会发现后台有如下日志：
+
+```
+Loaded RoutePredicateFactory [After]
+Loaded RoutePredicateFactory [Before]
+Loaded RoutePredicateFactory [Between]
+Loaded RoutePredicateFactory [Cookie]
+Loaded RoutePredicateFactory [Header]
+Loaded RoutePredicateFactory [Host]
+Loaded RoutePredicateFactory [Method]
+Loaded RoutePredicateFactory [Path]
+Loaded RoutePredicateFactory [Query]
+Loaded RoutePredicateFactory [ReadBodyPredicateFactory]
+Loaded RoutePredicateFactory [RemoteAddr]
+Loaded RoutePredicateFactory [Weight]
+Loaded RoutePredicateFactory [CloudFoundryRouteService]
+```
+
+Spring Cloud Gateway将路由匹配作为Spring WebFlux HandlerMapping基础架构的一部分。
+
+Spring Cloud Gateway包括许多内置的Route Predicate工厂。所有这些Predicate都与HTTP请求的不同属性匹配。多个RoutePredicate工厂可以进行组合。
+
+Spring Cloud Gateway创建Route 对象时，使用RoutePredicateFactory 创建 Predicate对象，Predicate 对象可以赋值给Route。Spring Cloud Gateway包含许多内置的Route Predicate Factories。
+所有这些谓词都匹配HTTP请求的不同属性。多种谓词工厂可以组合，并通过逻辑and。
+
+
+
+路由断言工厂：
+
+```
+The After Route Predicate Factory
+The Before Route Predicate Factory
+The Between Route Predicate Factory
+The Cookie Route Predicate Factory
+The Header Route Predicate Factory
+The Host Route Predicate Factory
+The Method Route Predicate Factory
+The Path Route Predicate Factory
+The Query Route Predicate Factory
+The RemoteAddr Route Predicate Factory
+The Weight Route Predicate Factory
+```
+
+* `After`
+
+  * ```yaml
+    spring:
+      cloud:
+        gateway:
+          routes:
+          - id: after_route
+            uri: https://example.org
+            predicates:
+            - After=2017-01-20T17:42:47.789-07:00[America/Denver]
+    ```
+
+  * 指定时间之后，才可路由到指定微服务（指定的时间之前访问，都会报404）
+
+* `Before`
+
+  * ```yaml
+    spring:
+      cloud:
+        gateway:
+          routes:
+          - id: before_route
+            uri: https://example.org
+            predicates:
+            - Before=2017-01-20T17:42:47.789-07:00[America/Denver]
+    ```
+
+  * 在指定时间之前的才可以路由到该微服务
+
+* `Between`
+
+  * ```yaml
+    spring:
+      cloud:
+        gateway:
+          routes:
+          - id: between_route
+            uri: https://example.org
+            predicates:
+            - Between=2017-01-20T17:42:47.789-07:00[America/Denver], 2017-01-21T17:42:47.789-07:00[America/Denver]
+    ```
+
+  * 指定时间之间，才可以路由到该微服务
+
+* `Cookie`
+
+  * ```yaml
+    spring:
+      cloud:
+        gateway:
+          routes:
+          - id: cookie_route
+            uri: https://example.org
+            predicates:
+            - Cookie=chocolate, ch.p
+    ```
+
+  * 只有包含某些指定cookie(key,value),的请求才可以路由
+
+* `Header`
+
+  * ```yaml
+    spring:
+      cloud:
+        gateway:
+          routes:
+          - id: header_route
+            uri: https://example.org
+            predicates:
+            - Header=X-Request-Id, \d+
+    ```
+
+  * 只有包含指定请求头的请求,才可以路由（支持正则）
+
+* `Host`
+
+  * ```yaml
+    spring:
+      cloud:
+        gateway:
+          routes:
+          - id: host_route
+            uri: https://example.org
+            predicates:
+            - Host=**.somehost.org,**.anotherhost.org
+    ```
+
+  * 只有指定主机的才可以访问
+
+* `Method`
+
+  * ```yaml
+    spring:
+      cloud:
+        gateway:
+          routes:
+          - id: method_route
+            uri: https://example.org
+            predicates:
+            - Method=GET,POST
+    ```
+
+  * 指定请求方式才可以路由访问
+
+* `Path`
+
+  * ```yaml
+    spring:
+      cloud:
+        gateway:
+          routes:
+          - id: path_route
+            uri: https://example.org
+            predicates:
+            - Path=/red/{segment},/blue/{segment}
+    ```
+
+  * 指定访问路径，才可以路由
+
+* `Query`
+
+  * ```yaml
+    spring:
+      cloud:
+        gateway:
+          routes:
+          - id: query_route
+            uri: https://example.org
+            predicates:
+            - Query=red, gree.
+    ```
+
+  * 带有指定请求参数，才可以路由访问（支持正则，参数值要为整数）
+
+* `RemoteAddr`
+
+  * ```yaml
+    spring:
+      cloud:
+        gateway:
+          routes:
+          - id: remoteaddr_route
+            uri: https://example.org
+            predicates:
+            - RemoteAddr=192.168.1.1/24
+    ```
+
+  * 指定ip地址段才可以路由访问
+
+* `Weight`
+
+  * ```yaml
+    spring:
+      cloud:
+        gateway:
+          routes:
+          - id: weight_high
+            uri: https://weighthigh.org
+            predicates:
+            - Weight=group1, 8
+          - id: weight_low
+            uri: https://weightlow.org
+            predicates:
+            - Weight=group1, 2
+    ```
+
+  * 通过权重路由请求，:`Weight=group，weight` ，上述路由将80%的流量转发到‎‎weighthigh.org‎‎，20%的流量转发到‎‎weighlow.org‎
+
+上述时区时间生成方式：
+
+```java
+ZonedDateTime zonedDateTime = ZonedDateTime.now();
+System.out.println(zonedDateTime);
+```
+
+结果：
+
+```
+2021-05-23T12:11:38.009+08:00[Asia/Shanghai]
+```
+
+可以通过curl命令进行上述访问测试：
+
+```shell
+# 带cookie的
+curl http://localhost:9527/payment/lb --cookie "chocolate=chip"
+# 带指定请求头的参数命令
+curl http://localhost:9527/payment/lb -H "X-Request-Id:123"
+```
+
+案例：
+
+```yaml
+  cloud:
+    gateway: # 网关
+      discovery:
+        locator:
+          enabled: true # 开启从注册中心动态创建路由的功能，利用微服务名进行路由
+      routes: # 路由
+        - id: payment_route2
+          uri: lb://cloud-payment-service
+          predicates:
+            - Path=/payment/lb/**
+            - Cookie=chocolate, chip
+            - Header=X-Request-Id, 123
+```
+
+启动服务，测试
+
+```
+C:\Users\ayiya>curl http://localhost:9527/payment/lb --cookie "chocolate=chip" -H "X-Request-Id:123"
+server port: 8003
+C:\Users\ayiya>
+```
+
+
+
+**小结**
+
+说白了，Predicate就是为了实现一组匹配规则，让请求过来找到对应的Route进行处理。
+
+除了通过yaml配置实现，同样可以通过编码进行配置
+
+```java
+RemoteAddressResolver resolver = XForwardedRemoteAddressResolver
+    .maxTrustedIndex(1);
+
+...
+
+.route("direct-route",
+    r -> r.remoteAddr("10.1.1.1", "10.10.1.1/24")
+        .uri("https://downstream1")
+.route("proxied-route",
+    r -> r.remoteAddr(resolver, "10.10.1.1", "10.10.1.1/24")
+        .uri("https://downstream2")
+)
+```
+
+
+
+#### Filter的使用
+
+路由过滤器可用于修改进入的HTTP请求和返回的HTTP响应，路由过滤器只能指定路由进行使用。Spring Cloud Gateway内置了多种路由过滤器，他们都由GatewayFilter的工厂类来产生。
+
+Spring Cloud Gateway的Filter:
+
+生命周期：
+
+* pre（类似spring前置通知）
+* post（类似spring后置通知）
+
+种类（具体看官方文档）：
+
+* GatewayFilter - 有31种，官方文档地址：https://docs.spring.io/spring-cloud-gateway/docs/2.2.8.RELEASE/reference/html/#gatewayfilter-factories
+* GlobalFilter - 有10种，官网文档地址：https://docs.spring.io/spring-cloud-gateway/docs/2.2.8.RELEASE/reference/html/#global-filters
+
+常用的GatewayFilter：AddRequestParameter GatewayFilter
+
+自定义全局GlobalFilter：
+
+```java
+@Bean
+public GlobalFilter customFilter() {
+    return new CustomGlobalFilter();
+}
+
+public class CustomGlobalFilter implements GlobalFilter, Ordered {
+
+    @Override
+    public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
+        log.info("custom global filter");
+        return chain.filter(exchange);
+    }
+
+    @Override
+    public int getOrder() {
+        return -1;
+    }
+}
+```
+
+
+
+两个主要接口介绍：
+
+* GlobalFilter
+* Ordered
+
+能干什么：
+
+* 全局日志记录
+* 统一网关鉴权
+* …
+
+##### 自定义全局过滤器
+
+官网示例
+
+```java
+@Bean
+public GlobalFilter customFilter() {
+    return new CustomGlobalFilter();
+}
+
+public class CustomGlobalFilter implements GlobalFilter, Ordered {
+
+    @Override
+    public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
+        log.info("custom global filter");
+        return chain.filter(exchange);
+    }
+
+    @Override
+    public int getOrder() {
+        return -1;
+    }
+}
+```
+
+在网关gateway模块创建自定义过滤器类
+
+```java
+package com.hyd.springcloud.filter;
+
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.cloud.gateway.filter.GatewayFilterChain;
+import org.springframework.cloud.gateway.filter.GlobalFilter;
+import org.springframework.core.Ordered;
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Component;
+import org.springframework.web.server.ServerWebExchange;
+import reactor.core.publisher.Mono;
+
+@Component
+@Slf4j
+public class MyGatewayFilter implements GlobalFilter, Ordered {
+    @Override
+    public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
+        log.info("<--- enter MyGatewayFilter.filter() --->");
+        String username = exchange.getRequest().getQueryParams().getFirst("username");
+        if(username==null){
+            log.error("--- 用户名为null ---");
+            exchange.getResponse().setStatusCode(HttpStatus.NOT_ACCEPTABLE);
+            return exchange.getResponse().setComplete();
+        }
+        log.info("--- username: {}",username);
+        //放行
+        return chain.filter(exchange);
+    }
+
+    @Override
+    public int getOrder() {
+        return 0;
+    }
+}
+
+```
+
+启动服务，访问：http://localhost:9527/payment/lb
+
+```
+406 Not Acceptable
+```
+
+控制台：
+
+```
+<--- enter MyGatewayFilter.filter() --->
+--- 用户名为null ---
+```
+
+正确访问：http://localhost:9527/payment/lb?username=张三
+
+```
+server port: 8003
+```
+
+```
+<--- enter MyGatewayFilter.filter() --->
+--- username: 张三
+```
+
+结束
+
+
+
+---
+
+## 服务配置
+
+### Spring Cloud Config（分布式配置中心）
+
+##### 概述
+
+**分布式系统面临的配置问题**
+
+微服务意味着要将单体应用中的业务拆分成一个个子服务，每个服务的粒度相对较小，因此系统中会出现大量的服务。由于每个服务都需要必要的配置信息才能运行，所以一套集中式的、动态的配置管理设施是必不可少的。
+
+SpringCloud提供了ConfigServer来解决这个问题，我们每一个微服务自己带着一个application.yml，上百个配置文件的管理.……
+
+
+
+官网：[Spring Cloud Config](https://docs.spring.io/spring-cloud-config/docs/2.2.8.RELEASE/reference/html/)
+
+**是什么**
+
+SpringCloud Config为微服务架构中的微服务提供集中化的外部配置支持，配置服务器为各个不同微服务应用的所有环境提供了一个中心化的外部配置。
+
+**SpringCloud Config分为服务端和客户端两部分**
+
+* 服务端也称为分布式配置中心，它是一个独立的微服务应用，用来连接配置服务器并为客户端提供获取配置信息，加密/解密信息等访问接口。
+
+* 客户端则是通过指定的配置中心来管理应用资源，以及与业务相关的配置内容，并在启动的时候从配置中心获取和加载配置信息配置服务器默认采用git来存储配置信息，这样就有助于对环境配置进行版本管理，并且可以通过git客户端工具来方便的管理和访问配置内容。
+
+**作用**
+
+* 集中管理配置文件
+* 不同环境不同配置，动态化的配置更新，分环境部署比如dev/test/prod/beta/release
+* 运行期间动态调整配置，不再需要在每个服务部署的机器上编写配置文件，服务会向配置中心统一拉取配置自己的信息
+* 当配置发生变动时，服务不需要重启即可感知到配置的变化并应用新的配置
+* 将配置信息以REST接口的形式暴露 - post/crul访问刷新即可…
+
+**与GitHub整合配置**
+
+由于SpringCloud Config默认使用Git来存储配置文件(也有其它方式,比如支持SVN和本地文件)，但最推荐的还是Git，而且使用的是http/https访问的形式。
+
+
+
+
+
+//todo
+
+---
+
+## 服务总线
+
+#### Spring Cloud Bus（消息总线）
+
+
+
+---
+
+end
+
+`(*^_^*)`

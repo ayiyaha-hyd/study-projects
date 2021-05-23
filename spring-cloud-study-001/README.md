@@ -5207,6 +5207,12 @@ C:\Users\ayiya>
 
 除了通过yaml配置实现，同样可以通过编码进行配置
 
+`AfterRoutePredicateFactory` `UML`类图
+
+![AfterRoutePredicateFactory](.\AfterRoutePredicateFactory.png)
+
+
+
 ```java
 RemoteAddressResolver resolver = XForwardedRemoteAddressResolver
     .maxTrustedIndex(1);
@@ -5376,7 +5382,7 @@ server port: 8003
 
 ### Spring Cloud Config（分布式配置中心）
 
-##### 概述
+#### 概述
 
 **分布式系统面临的配置问题**
 
@@ -5412,9 +5418,405 @@ SpringCloud Config为微服务架构中的微服务提供集中化的外部配�
 
 
 
+#### Spring Cloud Config配置中心搭建
+
+##### 使用Git存储配置文件
+
+创建git仓库：`git@github.com:ayiyaha-hyd/spring-cloud-config.git`
+
+此处注意分支名，github默认分支名为main，下面案例为master
+
+新建三个配置文件：
+
+`config-dev.yaml`
+
+```yaml
+config:
+  info: "master branch,spring-cloud-config/config-dev.yaml version=7"
+```
+
+`config-prod.yaml`
+
+```yaml
+config:
+  info: "master branch,spring-cloud-config/config-prod.yaml version=1"
+```
+
+`config-test.yaml`
+
+```yaml
+config:
+  info: "master branch,spring-cloud-config/config-test.yaml version=1"
+```
+
+##### 创建config子模块cloud-config-center3344
+
+pom.xml
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <parent>
+        <artifactId>cloud2021</artifactId>
+        <groupId>com.hyd.springcloud</groupId>
+        <version>1.0-SNAPSHOT</version>
+    </parent>
+    <modelVersion>4.0.0</modelVersion>
+    <artifactId>cloud-config-center3344</artifactId>
+
+    <dependencies>
+        <!-- spring cloud config server -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-config-server</artifactId>
+        </dependency>
+        <!-- eureka client -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
+        </dependency>
+    </dependencies>
+</project>
+```
+
+application.yaml
+
+```yaml
+server:
+  port: 3344
+spring:
+  application:
+    name: cloud-config-center # 应用名，Eureka上显示的实例名
+  cloud:
+    config:
+      server:
+        git:
+          uri: git@github.com:ayiyaha-hyd/spring-cloud-config.git
+          search-paths: # 搜索目录
+            - spring-cloud-config
+      label: master # 读取分支
+eureka:
+  instance:
+    hostname: ${spring.cloud.client.ip-address} # Eureka上显示的主机名
+    appname: cloud-config-service # Eureka上显示的服务名，缺省为spring.application.name
+  client:
+    service-url:
+      defaultZone: http://cloud-eureka-server7001:7001/eureka/, http://cloud-eureka-server7002:7002/eureka/, http://cloud-eureka-server7003:7003/eureka/ #集群版
+```
+
+启动类
+
+```java
+package com.hyd.springcloud;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.cloud.config.server.EnableConfigServer;
+
+@SpringBootApplication
+@EnableConfigServer
+public class ConfigMain3344 {
+    public static void main(String[] args) {
+        SpringApplication.run(ConfigMain3344.class, args);
+    }
+}
+
+```
+
+启动服务，访问：http://localhost:3344/master/config-dev.yaml
+
+```
+config:
+  info: master branch,spring-cloud-config/config-dev.yaml version=7
+
+```
+
+成功读取到了git上的配置文件，最终所有微服务只从git上获取配置文件
+
+##### 配置读取规则
+
+* `/{label}/{application}-{profile}.yaml`（推荐）
+  * master分支
+    * http://localhost:3344/master/config-dev.yaml
+    * http://localhost:3344/master/config-test.yaml
+  * dev分支
+    * http://localhost:3344/dev/config-dev.yaml
+* `/{application}-{profile}.yaml`
+  * http://localhost:3344/config-dev.yaml
+  * http://localhost:3344/config-test.yaml
+* `/{application}-{profile}/{label}.yaml`
+  * dev分支
+    * http://localhost:3344/config-dev/dev.yaml
+  * master分支
+    * http://localhost:3344/config-dev/master.yaml
+
+解释：
+
+- label：分支(branch)
+- name：服务名
+- profiles：环境(dev/test/prod
+
+##### 创建Config Client（客户端）拉取配置
+
+创建子模块
+
+pom.xml需要config client,eureka client,web三个依赖
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <parent>
+        <artifactId>cloud2021</artifactId>
+        <groupId>com.hyd.springcloud</groupId>
+        <version>1.0-SNAPSHOT</version>
+    </parent>
+    <modelVersion>4.0.0</modelVersion>
+    <artifactId>cloud-config-client3355</artifactId>
+
+    <dependencies>
+        <!-- spring cloud config client -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-config-client</artifactId>
+        </dependency>
+        <!-- eureka client -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
+        </dependency>
+        <!-- web -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+    </dependencies>
+</project>
+```
+
+其中`spring-cloud-starter-config`和`spring-cloud-config-client`都可以，只是引入的部分依赖不同
+
+```xml
+<dependency>
+    <groupId>org.springframework.cloud</groupId>
+    <artifactId>spring-cloud-starter-config</artifactId>
+</dependency>
+```
+
+```xml
+<dependency>
+    <groupId>org.springframework.cloud</groupId>
+    <artifactId>spring-cloud-config-client</artifactId>
+</dependency>
+```
+
+bootstrap.yaml（注意此处为bootstrap.yaml）
+
+```yaml
+server:
+  port: 3355
+spring:
+  application:
+    name: cloud-config-client3355
+  cloud:
+    config: # Spring Cloud Config客户端配置
+      label: master # 分支名
+      name: config # 配置文件名
+      profile: dev # 属性后缀名
+      uri: http://localhost:3344 # 配置中心地址
+eureka:
+  instance:
+    appname: cloud-config-client-service # Eureka显示服务名
+  client:
+    service-url:
+      defaultZone: http://cloud-eureka-server7001:7001/eureka/, http://cloud-eureka-server7002:7002/eureka/, http://cloud-eureka-server7003:7003/eureka/ #集群版
+```
+
+**bootstrap.yml与application.yml区别**
+
+* applicaiton.yml是用户级的资源配置项
+* bootstrap.yml是系统级的，优先级更加高
+* Spring Cloud会创建一个Bootstrap Context，作为Spring应用的Application Context的父上下文。初始化的时候，BootstrapContext负责从外部源加载配置属性并解析配置。这两个上下文共享一个从外部获取的Environment。
+* Bootstrap属性有高优先级，默认情况下，它们不会被本地配置覆盖。Bootstrap context和Application Context有着不同的约定，所以新增了一个bootstrap.yml文件，保证Bootstrap Context和Application Context配置的分离。
+* 要将Client模块下的application.yml文件改为bootstrap.yml,这是很关键的，因为bootstrap.yml是比application.yml先加载的。bootstrap.yml优先级高于application.yml。
+
+启动类
+
+```java
+package com.hyd.springcloud;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.cloud.netflix.eureka.EnableEurekaClient;
+
+@SpringBootApplication
+@EnableEurekaClient
+public class ClientMain3355 {
+    public static void main(String[] args) {
+        SpringApplication.run(ClientMain3355.class,args);
+    }
+}
+
+```
+
+controller层
+
+```java
+package com.hyd.springcloud.controller;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+public class ConfigClientController {
+    @Value("${config.info}")
+    private String configInfo;
+
+    @GetMapping("/configInfo")
+    public String getConfigInfo(){
+        return configInfo;
+    }
+}
+
+```
+
+`Git`上的配置文件`spring-cloud-config/config-dev.yaml`
+
+```yaml
+config:
+  info: "master branch,spring-cloud-config/config-dev.yaml version=7"
+```
+
+启动服务，访问：http://localhost:3355/configInfo
+
+```
+master branch,spring-cloud-config/config-dev.yaml version=7
+```
+
+成功通过配置中心读取到了配置文件信息
 
 
-//todo
+
+但是，倘若此时修改git配置文件，修改`version=2`
+
+```yaml
+config:
+  info: "master branch,spring-cloud-config/config-dev.yaml version=7"
+```
+
+配置中心访问：http://localhost:3344/master/config-dev.yaml
+
+```
+config:
+  info: master branch,spring-cloud-config/config-dev.yaml version=2
+
+```
+
+客户端访问：http://localhost:3355/configInfo
+
+```
+master branch,spring-cloud-config/config-dev.yaml version=7
+```
+
+**问题**
+
+服务启动之后，修改git配置文件，配置中心实时刷新，但客户端并没有发生改变，除非重启或重新加载。
+
+分布式配置的动态刷新问题
+
+Linux运维修改GitHub上的配置文件内容做调整
+刷新3344，发现ConfigServer配置中心立刻响应
+刷新3355，发现ConfigClient客户端没有任何响应
+3355没有变化除非自己重启或者重新加载
+难到每次运维修改配置文件，客户端都需要重启??噩梦
+
+##### Config 动态刷新解决
+
+修改客户端子模块cloud-config-client3355
+
+pom.xml引入actuator监控依赖
+
+```xml
+<!-- 此处为了动态获取config配置中心配置 引入 actuator依赖 -->
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-actuator</artifactId>
+</dependency>
+```
+
+修改bootstrap.yaml，添加暴露监控端口配置
+
+```yaml
+# 暴露监控端口
+management:
+  endpoints:
+    web:
+      exposure:
+        include: "*"
+```
+
+controller层添加`@RefreshScope`注解
+
+```java
+package com.hyd.springcloud.controller;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.cloud.context.config.annotation.RefreshScope;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+@RefreshScope
+public class ConfigClientController {
+    @Value("${config.info}")
+    private String configInfo;
+
+    @GetMapping("/configInfo")
+    public String getConfigInfo(){
+        return configInfo;
+    }
+}
+
+```
+
+
+
+启动服务，测试：修改git配置文件version=3 --> 访问配置中心3344 --> 访问客户端3355，没有改变
+
+```
+master branch,spring-cloud-config/config-dev.yaml version=2
+```
+
+运维人员发送Post请求刷新3355
+
+```shell
+curl -X POST "http://localhost:3355/actuator/refresh"
+```
+
+```
+["config.client.version","config.info"] 
+```
+
+再次访问：
+
+```
+master branch,spring-cloud-config/config-dev.yaml version=3
+```
+
+成功实现了客户端3355刷新到最新配置内容，避免了服务重启
+
+
+
+想想还有什么问题?
+
+- 假如有多个微服务客户端3355/3366/3377
+- 每个微服务都要执行—次post请求，手动刷新?
+- 可否广播，一次通知，处处生效?
+- 我们想大范围的自动刷新，求方法
 
 ---
 

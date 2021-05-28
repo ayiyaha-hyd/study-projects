@@ -1,0 +1,10 @@
+server:
+  port: 9002
+spring:
+  application:
+    name: cloud-alibaba-provider-nacos-payment9002
+  cloud:
+    nacos: # nacos
+      discovery: # 服务发现
+        service: cloud-alibaba-provider-nacos-payment-service
+        server-addr: 127.0.0.1:8848

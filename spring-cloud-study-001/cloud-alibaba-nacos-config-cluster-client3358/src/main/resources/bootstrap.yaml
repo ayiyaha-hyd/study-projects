@@ -1,0 +1,9 @@
+# 系统级的配置文件
+spring:
+  application:
+    name: cloud-alibaba-nacos-config-cluster-client3358
+  cloud:
+    nacos:
+      config:
+        file-extension: yaml # 显示的声明 dataid 文件扩展名
+      server-addr: 117.50.3.120:3300 # nginx地址，对应转发到nacos集群上

@@ -27,3 +27,16 @@ spring-cloud-study-001/cloud-gateway-gateway9527/target/
 spring-cloud-study-001/cloud-zuul-gateway9527/target/
 spring-cloud-study-001/cloud-config-center3344/target/
 spring-cloud-study-001/cloud-config-client3355/target/
+spring-cloud-study-001/cloud-alibaba-consumer-nacos-order80/target/
+spring-cloud-study-001/cloud-alibaba-nacos-config-client3358/target/
+spring-cloud-study-001/cloud-alibaba-nacos-config-cluster-client3358/target/
+spring-cloud-study-001/cloud-alibaba-provider-nacos-payment9001/target/
+spring-cloud-study-001/cloud-alibaba-provider-nacos-payment9002/target/
+spring-cloud-study-001/cloud-config-client3356/target/
+spring-cloud-study-001/cloud-config-client3357/target/
+spring-cloud-study-001/cloud-consumer-sleuth-order80/target/
+spring-cloud-study-001/cloud-provider-sleuth-payment8001/target/
+spring-cloud-study-001/cloud-stream-rabbitmq-provider8801/target/
+spring-cloud-study-001/cloud-stream-rabbitmq-consumer8802/target/
+spring-cloud-study-001/cloud-stream-rabbitmq-consumer8803/target/
+spring-cloud-study-001/cloud-stream-rabbitmq-consumer8804/target/

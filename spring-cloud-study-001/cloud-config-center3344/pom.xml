@@ -11,6 +11,11 @@
     <artifactId>cloud-config-center3344</artifactId>
 
     <dependencies>
+        <!-- spring cloud bus amap -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-bus-amqp</artifactId>
+        </dependency>
         <!-- spring cloud config server -->
         <dependency>
             <groupId>org.springframework.cloud</groupId>
@@ -20,6 +25,11 @@
         <dependency>
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
+        </dependency>
+        <!-- spring cloud bus amap 消息总线动态刷新通知时，引入的actuator依赖 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
     </dependencies>
 </project>

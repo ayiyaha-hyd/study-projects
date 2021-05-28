@@ -86,6 +86,39 @@ pom.xml文件
     <!-- FIXME change it to the project's website -->
     <url>http://www.example.com</url>
 
+    <!-- 模块 -->
+    <modules>
+        <module>cloud-provider-payment8001</module>
+        <module>cloud-consumer-order80</module>
+        <module>cloud-api-commons</module>
+        <module>cloud-eureka-server7001</module>
+        <module>cloud-eureka-server7002</module>
+        <module>cloud-eureka-server7003</module>
+        <module>cloud-provider-payment8002</module>
+        <module>cloud-provider-payment8003</module>
+        <module>cloud-provider-payment8004</module>
+        <module>cloud-consumerzk-order80</module>
+        <module>cloud-providerconsul-payment8005</module>
+        <module>cloud-consumerconsul-order80</module>
+        <module>cloud-consumer-feign-order80</module>
+        <module>cloud-provider-hystrix-payment8001</module>
+        <module>cloud-consumer-feign-hystrix-order80</module>
+        <module>cloud-consumer-hystrix-dashboard9001</module>
+        <module>cloud-zuul-gateway9527</module>
+        <module>cloud-gateway-gateway9527</module>
+        <module>cloud-config-center3344</module>
+        <module>cloud-config-client3355</module>
+        <module>cloud-config-client3356</module>
+        <module>cloud-config-client3357</module>
+        <module>cloud-stream-rabbitmq-provider8801</module>
+        <module>cloud-stream-rabbitmq-consumer8802</module>
+        <module>cloud-stream-rabbitmq-consumer8803</module>
+        <module>cloud-stream-rabbitmq-consumer8804</module>
+        <module>cloud-provider-sleuth-payment8001</module>
+        <module>cloud-consumer-sleuth-order80</module>
+        <module>cloud-alibaba-provider-nacos-payment9001</module>
+    </modules>
+
     <!--统一管理jar包和版本-->
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -94,9 +127,11 @@ pom.xml文件
         <junit.version>4.12</junit.version>
         <log4j.version>1.2.17</log4j.version>
         <lombok.version>1.16.18</lombok.version>
-        <mysql.version>8.0.18</mysql.version>
+        <mysql.version>5.1.47</mysql.version>
         <druid.verison>1.1.16</druid.verison>
         <mybatis.spring.boot.verison>1.3.0</mybatis.spring.boot.verison>
+        <spring-cloud-alibaba.version>2.2.0.RELEASE</spring-cloud-alibaba.version>
+        <spring-boot.version>2.2.2.RELEASE</spring-boot.version>
     </properties>
 
     <!--子模块继承之后，提供作用：锁定版本+子module不用谢groupId和version-->
@@ -106,7 +141,7 @@ pom.xml文件
             <dependency>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-dependencies</artifactId>
-                <version>2.2.2.RELEASE</version>
+                <version>${spring-boot.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -118,11 +153,11 @@ pom.xml文件
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
-            <!--spring cloud alibaba 2.1.0.RELEASE-->
+            <!--spring cloud alibaba 2.2.0.RELEASE-->
             <dependency>
                 <groupId>com.alibaba.cloud</groupId>
                 <artifactId>spring-cloud-alibaba-dependencies</artifactId>
-                <version>2.2.0.RELEASE</version>
+                <version>${spring-cloud-alibaba.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -166,6 +201,7 @@ pom.xml文件
     </dependencyManagement>
 
 </project>
+
 ```
 
 
@@ -5209,7 +5245,7 @@ C:\Users\ayiya>
 
 `AfterRoutePredicateFactory` `UML`类图
 
-![AfterRoutePredicateFactory](.\AfterRoutePredicateFactory.png)
+![AfterRoutePredicateFactory](.\UML类图\AfterRoutePredicateFactory.png)
 
 
 
@@ -5820,9 +5856,2320 @@ master branch,spring-cloud-config/config-dev.yaml version=3
 
 ---
 
-## 服务总线
+## 消息总线
 
 #### Spring Cloud Bus（消息总线）
+
+##### 概述
+
+**概念**
+
+Spring Cloud Bus可以理解为Spring Cloud体系架构中的消息总线，通过一个轻量级的Message Broker来将分布式系统中的节点连接起来。可用来实现广播状态更新（如配置更新），或其它管理指令。
+Spring Cloud Bus 就像是一个分布式的Spring Boot Actuator， 目前提供了两种类型的消息队列中间件支持：RabbitMQ与Kafka（对应的pom依赖分别为spring-cloud-starter-bus-amqp， spring-cloud-starter-bus-kafka）。
+
+**作用**
+
+Spring Cloud Bus能管理和传播分布式系统间的消息，就像一个分布式执行器，可用于广播状态更改、事件推送等，也可以当作微服务间的通信通道。
+
+**什么是总线**
+
+在微服务架构的系统中，通常会使用轻量级的消息代理来构建一个共用的消息主题，并让系统中所有微服务实例都连接上来。由于该主题中产生的消息会被所有实例监听和消费，所以称它为消息总线。在总线上的各个实例，都可以方便地广播一些需要让其他连接在该主题上的实例都知道的消息。
+
+**基本原理**
+
+ConfigClient实例都监听MQ中同一个topic(默认是Spring Cloud Bus)。当一个服务刷新数据的时候，它会把这个信息放入到Topic中，这样其它监听同一Topic的服务就能得到通知，然后去更新自身的配置。
+
+##### RabbitMQ环境配置
+
+RabbitMQ依赖Erlang语言环境，且注意二者的版本对应关系。
+
+版本对应关系：[RabbitMQ Erlang Version Requirements — RabbitMQ](https://www.rabbitmq.com/which-erlang.html)
+
+本项目采用RabbitMQ 3.8.3，对应Erlang OTP 22.3。
+
+下载地址：
+
+http://erlang.org/download/otp_win64_22.3.exe
+
+https://github.com/rabbitmq/rabbitmq-server/releases/download/v3.8.3/rabbitmq-server-3.8.3.exe
+
+默认安装，添加系统环境变量`ERLANG_HOME=C:\Program Files\erl10.7`（如果没有配置的话）在系统`path`添加`%ERLANG_HOME%\bin`。
+
+命令行输入`erl`：
+
+```
+C:\Users\ayiya>erl
+Eshell V10.7  (abort with ^G)
+```
+
+进入RabbitMQ安装目录下面的`sbin`目录，启用RabbitMQ管理功能
+
+打开`cmd`执行命令：`rabbitmq-plugins enable rabbitmq_management`
+
+```
+C:\Program Files\RabbitMQ Server\rabbitmq_server-3.8.3\sbin>rabbitmq-plugins enable rabbitmq_management
+Enabling plugins on node rabbit@PIG:
+rabbitmq_management
+The following plugins have been configured:
+  rabbitmq_management
+  rabbitmq_management_agent
+  rabbitmq_web_dispatch
+Applying plugin configuration to rabbit@PIG...
+The following plugins have been enabled:
+  rabbitmq_management
+  rabbitmq_management_agent
+  rabbitmq_web_dispatch
+
+started 3 plugins.
+
+C:\Program Files\RabbitMQ Server\rabbitmq_server-3.8.3\sbin>
+```
+
+执行成功后，访问RabbitMQ web管理界面：[RabbitMQ Management](http://localhost:15672/)
+
+初始用户名和密码：`guest/guest`
+
+常用命令：
+
+```
+net start RabbitMQ  启动
+net stop RabbitMQ  停止
+rabbitmqctl status  查看状态
+```
+
+
+
+##### Spring Cloud Bus动态刷新全局广播的设计思想
+
+方案1.利用消息总线触发一个客户端/bus/refresh,而刷新所有客户端的配置
+
+方案2.利用消息总线触发一个服务端ConfigServer的/bus/refresh端点，而刷新所有客户端的配置
+
+方案2显然更合适，方案1不合适的原因如下：
+
+* 打破了微服务的职责单一性，因为微服务本身是业务模块，它本不应该承担配置刷新的职责。
+* 破坏了微服务各节点的对等性。
+* 有一定的局限性。例如，微服务在迁移时，它的网络地址常常会发生变化，此时如果想要做到自动刷新，那就会增加更多的修改。
+
+##### Spring Cloud Bus动态刷新全局广播配置实现
+
+再创建两个客户端模块cloud-config-client3356，cloud-config-client3357
+
+现在一共三个客户端模块读取config配置中心模块配置
+
+**config配置中心模块**
+
+config配置中心模块cloud-config-center3344添加消息总线支持
+
+pom.xml新增以下配置
+
+```xml
+<!-- spring cloud bus amap -->
+<dependency>
+    <groupId>org.springframework.cloud</groupId>
+    <artifactId>spring-cloud-starter-bus-amqp</artifactId>
+</dependency>
+<!-- spring cloud bus amap 消息总线动态刷新通知时，引入的actuator依赖 -->
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-actuator</artifactId>
+</dependency>
+```
+
+bootstrap.yaml新增rabbitmq配置及bus端点暴露配置
+
+```yaml
+spring:
+  # rabbitmq相关配置
+  rabbitmq:
+    host: localhost
+    port: 5672 # 15672是Web管理界面的端口；5672是MQ访问的端口
+    username: guest
+    password: guest
+
+# rabbitmq相关配置,暴露bus刷新配置的端点
+management:
+  endpoints:
+    web:
+      exposure:
+        include: "bus-refresh"
+```
+
+**client 客户端模块配置**
+
+为三个客户端模块cloud-config-client3355/3356/3357添加消息总线支持
+
+pom.xml添加依赖(actuator依赖之前已添加)
+
+```xml
+<!-- spring cloud bus amap -->
+<dependency>
+    <groupId>org.springframework.cloud</groupId>
+    <artifactId>spring-cloud-starter-bus-amqp</artifactId>
+</dependency>
+```
+
+bootstrap.yaml添加配置(端点暴露配置之前已添加)
+
+```yaml
+spring:
+  # rabbitmq相关配置
+  rabbitmq:
+    host: localhost
+    port: 5672 # 15672是Web管理界面的端口；5672是MQ访问的端口
+    username: guest
+    password: guest
+```
+
+启动服务，修改git配置文件(修改version，3-->4)，发送post请求，查看客户端读取配置情况
+
+发送请求（—次发送，处处生效）
+
+```shell
+curl -X POST "http://localhost:3344/actuator/bus-refresh"
+```
+
+```shell
+curl -X GET http://localhost:3357/configInfo
+master branch,spring-cloud-config/config-dev.yaml version=4
+```
+
+**—次修改，广播通知，处处生效**
+
+
+
+##### Bus动态刷新定点通知
+
+修改完配置文件之后，指定具体某一个实例生效而不是全部
+
+```shell
+# 过destination参数类指定需要更新配置的服务或实例
+curl -X POST "http://localhost:3344/actuator/bus-refresh/{destination}"
+```
+
+例如：修改version=5，发送post请求刷新，cloud-config-client3357为配置文件中设定的应用名称，刷新指定客户端配置
+
+```shell
+curl -X POST "http://localhost:3344/actuator/bus-refresh/cloud-config-client3357"
+```
+
+```shell
+curl -X GET http://localhost:3357/configInfo
+master branch,spring-cloud-config/config-dev.yaml version=5
+```
+
+
+
+结束
+
+---
+
+## 消息驱动
+
+### 消息驱动概述
+
+常见MQ(消息中间件)：
+
+ActiveMQ
+RabbitMQ
+RocketMQ
+Kafka
+有没有一种新的技术诞生，让我们不再关注具体MQ的细节，我们只需要用一种适配绑定的方式，自动的给我们在各种MQ内切换。（类似于Hibernate）
+
+Cloud Stream是什么？屏蔽底层消息中间件的差异，降低切换成本，统一消息的编程模型。
+
+#### Spring Cloud Stream是什么
+
+什么是Spring Cloud Stream？
+
+官方定义Spring Cloud Stream是一个构建消息驱动微服务的框架。
+
+应用程序通过inputs或者 outputs 来与Spring Cloud Stream中binder对象交互。
+
+通过我们配置来binding(绑定)，而Spring Cloud Stream 的binder对象负责与消息中间件交互。所以，我们只需要搞清楚如何与Spring Cloud Stream交互就可以方便使用消息驱动的方式。
+
+通过使用Spring Integration来连接消息代理中间件以实现消息事件驱动。
+Spring Cloud Stream为一些供应商的消息中间件产品提供了个性化的自动化配置实现，引用了发布-订阅、消费组、分区的三个核心概念。
+
+目前仅支持RabbitMQ、 Kafka。
+
+#### Stream的设计思想
+
+**标准MQ**
+
+生产者/消费者之间靠消息媒介传递信息内容
+消息必须走特定的通道 - 消息通道 Message Channel
+消息通道里的消息如何被消费呢，谁负责收发处理 - 消息通道MessageChannel的子接口SubscribableChannel，由MessageHandler消息处理器所订阅。
+
+##### 为什么要用Spring Cloud Stream
+
+比方说我们用到了RabbitMQ和Kafka，由于这两个消息中间件的架构上的不同，像RabbitMQ有exchange，kafka有Topic和Partitions分区。
+
+这些中间件的差异性导致我们实际项目开发给我们造成了一定的困扰，我们如果用了两个消息队列的其中一种，后面的业务需求，我想往另外一种消息队列进行迁移，这时候无疑就是一个灾难性的，一大堆东西都要重新推倒重新做，因为它跟我们的系统耦合了，这时候Spring Cloud Stream给我们提供了—种解耦合的方式。
+
+Stream凭什么可以统一底层差异？
+
+在没有绑定器这个概念的情况下，我们的SpringBoot应用要直接与消息中间件进行信息交互的时候，由于各消息中间件构建的初衷不同，它们的实现细节上会有较大的差异性通过定义绑定器作为中间层，完美地实现了应用程序与消息中间件细节之间的隔离。通过向应用程序暴露统一的Channel通道，使得应用程序不需要再考虑各种不同的消息中间件实现。
+
+通过定义绑定器Binder作为中间层，实现了应用程序与消息中间件细节之间的隔离。
+
+Binder：
+
+INPUT对应于消费者
+
+OUTPUT对应于生产者
+
+**Stream中的消息通信方式遵循了发布-订阅模式**
+
+Topic主题进行广播
+
+- 在RabbitMQ就是Exchange
+- 在Kakfa中就是Topic
+
+Stream与RabbitMQ整合相关文档：[Spring Cloud Stream RabbitMQ Binder Reference Guide](https://docs.spring.io/spring-cloud-stream-binder-rabbit/docs/3.1.2/reference/html/spring-cloud-stream-binder-rabbit.html)
+
+
+
+##### Spring Cloud Stream标准流程
+
+//todo
+
+##### Stream常用API和常用注解
+
+Binder - 很方便的连接中间件，屏蔽差异。
+
+Channel - 通道，是队列Queue的一种抽象，在消息通讯系统中就是实现存储和转发的媒介，通过Channel对队列进行配置。
+
+Source和Sink - 简单的可理解为参照对象是Spring Cloud Stream自身，从Stream发布消息就是输出，接受消息就是输入。
+
+| 组成            | 说明                                                         |
+| --------------- | ------------------------------------------------------------ |
+| Middleware      | 中间件，目前只支持RabbitMQ和Kafka                            |
+| Binder          | Binder是应用与消息中间件之间的封装，目前实行了Kafka和RabbitMQ的Binder，通过Binder可以很方便的连接中间件，可以动态的改变消息类型(对应于Kafka的topic,RabbitMQ的exchange)，这些都可以通过配置文件来实现 |
+| @Input          | 注解标识输入通道，通过该输乎通道接收到的消息进入应用程序     |
+| @Output         | 注解标识输出通道，发布的消息将通过该通道离开应用程序         |
+| @StreamListener | 监听队列，用于消费者的队列的消息接收                         |
+| @EnableBinding  | 指信道channel和exchange绑定在一起                            |
+
+
+
+Eureka不加`@EnableEurekaClient`也能注册到配置中心，大概因为配置文件`eureka.client.register-with-eureka: true`默认为true
+
+```yaml
+eureka:
+  client:
+    register-with-eureka: false # 默认为true
+```
+
+#### 消息驱动案例
+
+
+
+**案例说明**
+
+创建生产者模块：cloud-stream-rabbitmq-provider8801
+
+创建两个消费者模块：cloud-stream-rabbitmq-consumer8802/8803
+
+##### 消息驱动之生产者模块
+
+生产者模块cloud-stream-rabbitmq-provider8801
+
+pom.xml
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <parent>
+        <artifactId>cloud2021</artifactId>
+        <groupId>com.hyd.springcloud</groupId>
+        <version>1.0-SNAPSHOT</version>
+    </parent>
+    <modelVersion>4.0.0</modelVersion>
+    <artifactId>cloud-stream-rabbitmq-provider8801</artifactId>
+    <dependencies>
+        <!-- stream rabbit -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-stream-rabbit</artifactId>
+        </dependency>
+        <!-- eureka client -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
+        </dependency>
+        <!-- web -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <!-- actuator -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <!-- 基础配置 -->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+    </dependencies>
+</project>
+```
+
+application.yaml
+
+```yaml
+server:
+  port: 8801
+spring:
+  application:
+    name: cloud-stream-rabbitmq-provider8801 # 应用名
+  cloud:
+    stream:
+      binders: # 在此处配置要绑定的rabbitmq的服务信息
+        defaultRabbit: # 表示定义的名称，用于于binding整合，名称随便起
+          type: rabbit # 消息组件类型
+          environment: # 设置rabbitmq的相关的环境配置
+            spring:
+              rabbitmq:
+                host: localhost
+                port: 5672
+                username: guest
+                password: guest
+      bindings: # 服务的整合处理
+        output: # 这个名字是一个通道的名称，自定义随便起
+          destination: cloud-stream-exchange # 表示要使用的Exchange名称定义
+          content-type: application/json # 设置消息类型，本次为json，文本则设置“text/plain”
+          binder: defaultRabbit # 设置要绑定的消息服务的具体设置
+eureka:
+  instance:
+    prefer-ip-address: true # 访问路径鼠标停留显示ip地址
+    #心跳检测与续约时间
+    #Eureka客户端向服务端发送心跳的时间间隔，单位为秒(默认是30秒)
+    lease-renewal-interval-in-seconds: 2
+    #Eureka服务端在收到最后一次心跳后等待时间上限，单位为秒(默认是90秒)，超时将剔除服务
+    lease-expiration-duration-in-seconds: 5
+    appname: cloud-stream-rabbitmq-provider-service # 服务名，默认取 spring.application.name 配置值，如果没有则为 unknown
+    instance-id: ${spring.cloud.client.ip-address}:${server.port} # 实例ID:此处为id+端口
+  client:
+    service-url:
+      defaultZone: http://localhost:7001/eureka # 单机版
+```
+
+启动类
+
+```java
+package com.hyd.springcloud;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class StreamMQMain8801 {
+    public static void main(String[] args) {
+        SpringApplication.run(StreamMQMain8801.class,args);
+    }
+}
+
+```
+
+
+
+消息发送服务接口类
+
+```java
+package com.hyd.springcloud.service;
+
+public interface MessageProviderService {
+    String send();
+}
+
+```
+
+消息发送服务实现类
+
+```java
+package com.hyd.springcloud.service.impl;
+
+import com.hyd.springcloud.service.MessageProviderService;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cloud.stream.annotation.EnableBinding;
+import org.springframework.cloud.stream.messaging.Source;
+import org.springframework.messaging.MessageChannel;
+import org.springframework.messaging.support.MessageBuilder;
+
+import java.util.UUID;
+
+@EnableBinding(Source.class)//定义消息的推送管道
+public class MessageProviderServiceImpl implements MessageProviderService {
+
+    @Autowired
+    private MessageChannel output;
+    @Override
+    public String send() {
+        String serial = UUID.randomUUID().toString();
+        //注意引入的是 org.springframework.messaging.support.MessageBuilder
+        output.send(MessageBuilder.withPayload(serial).build());
+        return "message send()~";
+    }
+}
+
+```
+
+controller层
+
+```java
+package com.hyd.springcloud.controller;
+
+import com.hyd.springcloud.service.MessageProviderService;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+public class MessageProviderController {
+    @Autowired
+    private MessageProviderService messageProviderService;
+
+    @GetMapping("/send")
+    public String send(){
+        return messageProviderService.send();
+    }
+}
+
+```
+
+
+
+##### 消息驱动之消费者模块
+
+消费者模块cloud-stream-rabbitmq-comsumer8002/consumer8003
+
+pom.xml
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <parent>
+        <artifactId>cloud2021</artifactId>
+        <groupId>com.hyd.springcloud</groupId>
+        <version>1.0-SNAPSHOT</version>
+    </parent>
+    <modelVersion>4.0.0</modelVersion>
+    <artifactId>cloud-stream-rabbitmq-consumer8802</artifactId>
+    <dependencies>
+        <!-- stream rabbit -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-stream-rabbit</artifactId>
+        </dependency>
+        <!-- eureka client -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
+        </dependency>
+        <!-- web -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <!-- actuator -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <!-- 基础配置 -->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+    </dependencies>
+</project>
+```
+
+application.yaml
+
+```yaml
+server:
+  port: 8802
+spring:
+  application:
+    name: cloud-stream-rabbitmq-consumer8802 # 应用名
+  cloud:
+    stream:
+      binders: # 在此处配置要绑定的rabbitmq的服务信息
+        defaultRabbit: # 表示定义的名称，用于于binding整合，名称随便起
+          type: rabbit # 消息组件类型
+          environment: # 设置rabbitmq的相关的环境配置
+            spring:
+              rabbitmq:
+                host: localhost
+                port: 5672
+                username: guest
+                password: guest
+      bindings: # 服务的整合处理
+        input: # 这个名字是一个通道的名称，自定义随便起
+          destination: cloud-stream-exchange # 表示要使用的Exchange名称定义
+          content-type: application/json # 设置消息类型，本次为json，文本则设置“text/plain”
+          binder: defaultRabbit # 设置要绑定的消息服务的具体设置
+eureka:
+  instance:
+    prefer-ip-address: true # 访问路径鼠标停留显示ip地址
+    #心跳检测与续约时间
+    #Eureka客户端向服务端发送心跳的时间间隔，单位为秒(默认是30秒)
+    lease-renewal-interval-in-seconds: 2
+    #Eureka服务端在收到最后一次心跳后等待时间上限，单位为秒(默认是90秒)，超时将剔除服务
+    lease-expiration-duration-in-seconds: 5
+    appname: cloud-stream-rabbitmq-consumer-service # 服务名，默认取 spring.application.name 配置值，如果没有则为 unknown
+    instance-id: ${spring.cloud.client.ip-address}:${server.port} # 实例ID:此处为id+端口
+  client:
+    service-url:
+      defaultZone: http://localhost:7001/eureka # 单机版
+```
+
+启动类
+
+```java
+package com.hyd.springcloud;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class MessageConsumerMain8802 {
+    public static void main(String[] args) {
+        SpringApplication.run(MessageConsumerMain8802.class,args);
+    }
+}
+
+```
+
+controller层
+
+```java
+package com.hyd.springcloud.controller;
+
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.cloud.stream.annotation.EnableBinding;
+import org.springframework.cloud.stream.annotation.StreamListener;
+import org.springframework.cloud.stream.messaging.Sink;
+import org.springframework.messaging.Message;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+@EnableBinding(Sink.class)
+@Slf4j
+public class MessageConsumerController {
+    @Value("${server.port}")
+    private String serverPort;
+
+    @StreamListener(Sink.INPUT)
+    public void input(Message<String> message){
+        log.info("consumer8802 收到message: --> {} ,server.port:{}",message.getPayload(),serverPort);
+    }
+}
+
+```
+
+启动服务
+
+向生产者8001发送请求：
+
+```shell
+curl -X GET http://localhost:8801/send
+```
+
+```
+message send()~
+```
+
+两个消费者模块立刻接收到了消息，后台日志：
+
+```
+consumer8802 收到message: --> c82f59f1-f499-45e1-ba20-46b07d4f71d4 ,server.port:8802
+```
+
+```
+consumer8803 收到message: --> c82f59f1-f499-45e1-ba20-46b07d4f71d4 ,server.port:8803
+```
+
+
+
+到目前为止，存在两个问题
+
+* 消息重复消费
+* 消息持久化
+
+##### 分组消费及持久化
+
+###### 解决重复消费
+
+**原理**
+
+微服务应用放置于同一个group中，就能够保证消息只会被其中一个应用消费一次。不同的组是可以重复消费的，同一个组内会发生竞争关系，只有其中一个可以消费。
+
+
+
+**案例**
+
+新创建一个消费者模块cloud-stream-rabbitmq-consumer8804（过程略）
+
+group: A_Group、B_Group
+
+A_Group:：8002/8003；（模块8002，8003在A组）
+
+B_Group:：8004（模块8004在B组）
+
+application.yaml新增group配置
+
+```yaml
+server:
+  port: 8804
+spring:
+  application:
+    name: cloud-stream-rabbitmq-consumer8804 # 应用名
+  cloud:
+    stream:
+      binders: # 在此处配置要绑定的rabbitmq的服务信息
+        defaultRabbit: # 表示定义的名称，用于于binding整合，名称随便起
+          type: rabbit # 消息组件类型
+          environment: # 设置rabbitmq的相关的环境配置
+            spring:
+              rabbitmq:
+                host: localhost
+                port: 5672
+                username: guest
+                password: guest
+      bindings: # 服务的整合处理
+        input: # 这个名字是一个通道的名称，自定义随便起
+          destination: cloud-stream-exchange # 表示要使用的Exchange名称定义
+          content-type: application/json # 设置消息类型，本次为json，文本则设置“text/plain”
+          binder: defaultRabbit # 设置要绑定的消息服务的具体设置
+          group: B_Group
+```
+
+启动服务，向生产者8801发送请求
+
+```shell
+curl -X GET http://localhost:8801/send
+```
+
+```
+message send()~
+```
+
+A_Group
+
+```
+consumer8802 收到message: --> 88c9dd6e-1de6-429d-8d61-4de1ffc70497 ,server.port:8802
+```
+
+```
+
+```
+
+B_Group
+
+```
+consumer8804 收到message: --> 88c9dd6e-1de6-429d-8d61-4de1ffc70497 ,server.port:8804
+```
+
+
+
+###### 解决持久化
+
+通过分组已解决
+
+停掉8802/8803/8804，去掉8804分组配置；8801发送消息，启动8802/8803/8804，8802/8803收到了消息（有分组属性配置），但8804未收到消息（无分组属性配置）
+
+此处体现了分组之后，消息持久化，未分组的消息发生了丢失。
+
+
+
+---
+
+## Spring Cloud Sleuth分布式请求链路跟踪
+
+### 概述
+
+官方文档地址：[Spring Cloud Sleuth](https://docs.spring.io/spring-cloud-sleuth/docs/2.2.8.RELEASE/reference/html/)
+
+为什么会出现这个技术？要解决哪些问题？
+
+在微服务框架中，一个由客户端发起的请求在后端系统中会经过多个不同的的服务节点调用来协同产生最后的请求结果，每一个前段请求都会形成一条复杂的分布式服务调用链路，链路中的任何一环出现高延时或错误都会引起整个请求最后的失败。
+
+**是什么**
+
+- https://github.com/spring-cloud/spring-cloud-sleuth
+- Spring Cloud Sleuth提供了一套完整的服务跟踪的解决方案
+- 在分布式系统中提供追踪解决方案并且兼容支持了zipkin
+
+
+
+#### Sleuth
+
+**一般的，一个分布式服务跟踪系统，主要有三部分：数据收集、数据存储和数据展示**。
+
+根据系统大小不同，每一部分的结构又有一定变化。
+
+譬如，对于大规模分布式系统，数据存储可分为实时数据和全量数据两部分.
+
+实时数据用于故障排查（troubleshooting）:全量数据用于系统优化
+
+数据收集除了支持平台无关和开发语言无关系统的数据收集，还包括异步数据收集（需要跟踪队列中的消息，保证调用的连贯性）
+
+以及确保更小的侵入性；数据展示又涉及到数据挖掘和分析。
+
+虽然每一部分都可能变得很复杂，但基本原理都类似。
+
+
+
+服务追踪的追踪单元是从客户发起请求（request）抵达被追踪系统的边界开始
+
+到被追踪系统向客户返回响应（response）为止的过程，称为一个“trace”。
+
+每个 trace 中会调用若干个服务，为了记录调用了哪些服务，以及每次调用的消耗时间等信息，在每次调用服务时，埋入一个调用记录，称为一个“span”。
+
+这样，若干个有序的 span 就组成了一个 trace。
+
+在系统向外界提供服务的过程中，会不断地有请求和响应发生，也就会不断生成 trace。
+
+把这些带有span 的 trace 记录下来，就可以描绘出一幅系统的服务拓扑图。
+
+附带上 span 中的响应时间，以及请求成功与否等信息，就可以在发生问题的时候，找到异常的服务。
+
+根据历史数据，还可以从系统整体层面分析出哪里性能差，定位性能优化的目标。
+
+Spring Cloud Sleuth为服务之间调用提供链路追踪。
+
+通过Sleuth可以很清楚的了解到一个服务请求经过了哪些服务，每个服务处理花费了多长。
+
+从而让我们可以很方便的理清各微服务间的调用关系。
+
+此外Sleuth可以帮助我们：
+
+- 耗时分析: 通过Sleuth可以很方便的了解到每个采样请求的耗时，从而分析出哪些服务调用比较耗时;
+- 可视化错误: 对于程序未捕捉的异常，可以通过集成Zipkin服务界面上看到;
+- 链路优化: 对于调用比较频繁的服务，可以针对这些服务实施一些优化措施。
+
+**spring cloud sleuth可以结合zipkin，将信息发送到zipkin，利用zipkin的存储来存储信息，利用zipkin ui来展示数据**。
+
+这是Spring Cloud Sleuth的概念图：
+
+![Spring Cloud Sleuth的概念图](https://raw.githubusercontent.com/spring-cloud/spring-cloud-sleuth/2.2.x/docs/src/main/asciidoc/images/trace-id.png)
+
+完整的调用链路
+
+表示一请求链路，一条链路通过Trace ld唯一标识，Span标识发起的请求信息，各span通过parent id关联起来
+
+名词解释
+
+- Trace：类似于树结构的Span集合，表示一条调用链路，存在唯一标识
+- span：表示调用链路来源，通俗的理解span就是一次请求信息
+
+#### Zipkin
+
+官方文档：[openzipkin/zipkin: Zipkin is a distributed tracing system (github.com)](https://github.com/openzipkin/zipkin#quick-start)
+
+Zipkin 分为两端，一个是 Zipkin 服务端，一个是 Zipkin 客户端，客户端也就是微服务的应用。
+客户端会配置服务端的 URL 地址，一旦发生服务间的调用的时候，会被配置在微服务里面的 Sleuth 的监听器监听，并生成相应的 Trace 和 Span 信息发送给服务端。
+
+发送的方式主要有两种：
+
+* HTTP 报文的方式
+* 消息总线的方式如 RabbitMQ
+
+不论哪种方式，我们都需要：
+
+* 一个 Eureka 服务注册中心，这里我们就用之前的 eureka 项目来当注册中心。
+* 一个 Zipkin 服务端。
+* 两个微服务应用，trace-a 和 trace-b，其中 trace-a 中有一个 REST 接口 /trace-a，调用该接口后将触发对 trace-b 应用的调用。
+
+##### Zipkin服务端
+
+关于 Zipkin 的服务端，在使用 Spring Boot 2.x 版本后，官方就不推荐自行定制编译了，反而是直接提供了编译好的 jar 包来给我们使用。
+
+之前的`@EnableZipkinServer`注解已经标上了过时注解`Deprecated`。
+
+```java
+/**
+ * @deprecated Custom servers are possible, but not supported by the community. Please use our
+ * <a href="https://github.com/openzipkin/zipkin#quick-start">default server build</a> first.
+ * If you find something missing, please <a href="https://gitter.im/openzipkin/zipkin">gitter</a> us
+ * about it before making a custom server.
+ *
+ * <p>If you decide to make a custom server, you accept responsibility for troubleshooting your
+ * build or configuration problems, even if such problems are a reaction to a change made by the
+ * Zipkin maintainers. In other words, custom servers are possible, but not supported.
+ */
+@Target(ElementType.TYPE)
+@Retention(RetentionPolicy.RUNTIME)
+@Documented
+@Import(InternalZipkinConfiguration.class)
+@Deprecated
+public @interface EnableZipkinServer {
+
+}
+```
+
+并且文档注释说明了，可以自己构建，但出了问题，后果自负。
+
+```
+If you decide to make a custom server, you accept responsibility for troubleshooting your build or configuration problems, even if such problems are a reaction to a change made by the Zipkin maintainers. In other words, custom servers are possible, but not supported.
+```
+
+zipkin-server 2.23.2版本下载地址：https://search.maven.org/remotecontent?filepath=io/zipkin/zipkin-server/2.23.2/zipkin-server-2.23.2-exec.jar
+
+其他版本下载：[Central Repository: io/zipkin/zipkin-server (maven.org)](https://repo1.maven.org/maven2/io/zipkin/zipkin-server/)
+
+最新版下载：https://search.maven.org/remote_content?g=io.zipkin&a=zipkin-server&v=LATEST&c=exec
+
+需要最低jdk1.8以上版本，启动脚本：
+
+```shell
+curl -sSL https://zipkin.io/quickstart.sh | bash -s
+java -jar zipkin.jar
+```
+
+Docker版本：
+
+```shell
+# Note: this is mirrored as ghcr.io/openzipkin/zipkin
+docker run -d -p 9411:9411 openzipkin/zipkin
+```
+
+Zipkin UI界面地址：
+
+```
+http://your_host:9411/zipkin/
+```
+
+
+
+### 搭建链路监控
+
+创建sleuth整合zipkin子模块示例两个，一个provider，一个consumer
+
+provider模块：
+
+pom.xml
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <parent>
+        <artifactId>cloud2021</artifactId>
+        <groupId>com.hyd.springcloud</groupId>
+        <version>1.0-SNAPSHOT</version>
+    </parent>
+    <modelVersion>4.0.0</modelVersion>
+    <artifactId>cloud-provider-sleuth-payment8001</artifactId>
+
+    <dependencies>
+        <!-- sleuth (sleuth+zipkin) -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-zipkin</artifactId>
+        </dependency>
+        <!-- eureka client -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
+        </dependency>
+        <!-- web -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+    </dependencies>
+</project>
+```
+
+application.yaml
+
+```yaml
+server:
+  port: 8001
+spring:
+  application:
+    name: cloud-provider-sleuth-payment8001
+  zipkin:
+    base-url: http://localhost:9411/
+  sleuth:
+    sampler:
+      probability: 1 # 采样率值介于 0 到 1 之间，1 则表示全部采集
+eureka:
+  instance:
+    appname: cloud-provider-sleuth-payment-service
+    instance-id: ${spring.cloud.client.ip-address}:${server.port}
+  client:
+    service-url:
+      defaultZone: http://localhost:7001/eureka # 单机版
+```
+
+启动类
+
+```java
+package com.hyd.springcloud;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class PaymentSleuthMain8001 {
+    public static void main(String[] args) {
+        SpringApplication.run(PaymentSleuthMain8001.class,args);
+    }
+}
+
+```
+
+controller层
+
+```java
+package com.hyd.springcloud.controller;
+
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+public class PaymentController {
+
+    @GetMapping("/payment/zipkin")
+    public String paymentZipkin(){
+        return "provider ---> paymentZipkin() 调用成功!";
+    }
+}
+
+```
+
+consumer模块
+
+pom.xml
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <parent>
+        <artifactId>cloud2021</artifactId>
+        <groupId>com.hyd.springcloud</groupId>
+        <version>1.0-SNAPSHOT</version>
+    </parent>
+    <modelVersion>4.0.0</modelVersion>
+    <artifactId>cloud-consumer-sleuth-order80</artifactId>
+
+    <dependencies>
+        <!-- sleuth (sleuth+zipkin) -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-zipkin</artifactId>
+        </dependency>
+        <!-- eureka client -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
+        </dependency>
+        <!-- web -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+    </dependencies>
+</project>
+```
+
+application.yaml
+
+```yaml
+server:
+  port: 80
+spring:
+  application:
+    name: cloud-consumer-sleuth-order80
+  zipkin:
+    base-url: http://localhost:9411/
+  sleuth:
+    sampler:
+      probability: 1 # 采样率值介于 0 到 1 之间，1 则表示全部采集
+eureka:
+  instance:
+    appname: cloud-consumer-sleuth-order-service
+    instance-id: ${spring.cloud.client.ip-address}:${server.port}
+  client:
+    service-url:
+      defaultZone: http://localhost:7001/eureka # 单机版
+```
+
+启动类
+
+```java
+package com.hyd.springcloud;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class OrderSleuthMain80 {
+    public static void main(String[] args) {
+        SpringApplication.run(OrderSleuthMain80.class,args);
+    }
+}
+
+```
+
+配置类
+
+```java
+package com.hyd.springcloud.config;
+
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.web.client.RestTemplate;
+
+@Configuration
+public class ApplicationContextConfig {
+    @Bean
+    public RestTemplate restTemplate(){
+        return new RestTemplate();
+    }
+}
+
+```
+
+controller层
+
+```java
+package com.hyd.springcloud.controller;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.RestTemplate;
+
+@RestController
+public class OrderController {
+    @Autowired
+    private RestTemplate restTemplate;
+
+    @GetMapping("/consumer/payment/zipkin")
+    public String paymentZipkin(){
+        return  restTemplate.getForObject("http://localhost:8001/payment/zipkin/", String.class);
+    }
+}
+```
+
+启动服务，发送请求：
+
+```shell
+curl -X GET http://localhost/consumer/payment/zipkin
+```
+
+```
+provider ---> paymentZipkin() 调用成功!
+```
+
+
+
+访问zipkin链路跟踪web界面：http://localhost:9411/zipkin/ ，查看详细调用信息
+
+
+
+---
+
+## Spring Cloud Alibaba
+
+### 概述
+
+为什么会出现SpringCloud alibaba
+
+Spring Cloud Netflix项目进入维护模式
+
+https://spring.io/blog/2018/12/12/spring-cloud-greenwich-rc1-available-now
+
+什么是维护模式？
+
+将模块置于维护模式，意味着Spring Cloud团队将不会再向模块添加新功能。
+
+他们将修复block级别的 bug 以及安全问题，他们也会考虑并审查社区的小型pull request。
+
+
+
+官方文档：[Spring Cloud Alibaba Reference Documentation (spring-cloud-alibaba-group.github.io)](https://spring-cloud-alibaba-group.github.io/github-pages/hoxton/en-us/index.html)
+
+Github地址：[spring-cloud-alibaba/README-zh.md at master · alibaba/spring-cloud-alibaba (github.com)](https://github.com/alibaba/spring-cloud-alibaba/blob/master/README-zh.md)
+
+#### 简介
+
+Spring Cloud Alibaba 致力于提供微服务开发的一站式解决方案。此项目包含开发分布式应用微服务的必需组件，方便开发者通过 Spring Cloud 编程模型轻松使用这些组件来开发分布式应用服务。
+
+依托 Spring Cloud Alibaba，您只需要添加一些注解和少量配置，就可以将 Spring Cloud 应用接入阿里微服务解决方案，通过阿里中间件来迅速搭建分布式应用系统。
+
+#### 主要功能
+
+- **服务限流降级**：默认支持 WebServlet、WebFlux, OpenFeign、RestTemplate、Spring Cloud Gateway, Zuul, Dubbo 和 RocketMQ 限流降级功能的接入，可以在运行时通过控制台实时修改限流降级规则，还支持查看限流降级 Metrics 监控。
+- **服务注册与发现**：适配 Spring Cloud 服务注册与发现标准，默认集成了 Ribbon 的支持。
+- **分布式配置管理**：支持分布式系统中的外部化配置，配置更改时自动刷新。
+- **消息驱动能力**：基于 Spring Cloud Stream 为微服务应用构建消息驱动能力。
+- **分布式事务**：使用 @GlobalTransactional 注解， 高效并且对业务零侵入地解决分布式事务问题。
+- **阿里云对象存储**：阿里云提供的海量、安全、低成本、高可靠的云存储服务。支持在任何应用、任何时间、任何地点存储和访问任意类型的数据。
+- **分布式任务调度**：提供秒级、精准、高可靠、高可用的定时（基于 Cron 表达式）任务调度服务。同时提供分布式的任务执行模型，如网格任务。网格任务支持海量子任务均匀分配到所有 Worker（schedulerx-client）上执行。
+- **阿里云短信服务**：覆盖全球的短信服务，友好、高效、智能的互联化通讯能力，帮助企业迅速搭建客户触达通道。
+
+更多功能请参考 [Roadmap](https://github.com/alibaba/spring-cloud-alibaba/blob/master/Roadmap-zh.md)。
+
+#### 如何使用
+
+##### 如何引入依赖
+
+如果需要使用已发布的版本，在 `dependencyManagement` 中添加如下配置。
+
+```
+	<dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>com.alibaba.cloud</groupId>
+                <artifactId>spring-cloud-alibaba-dependencies</artifactId>
+                <version>2.2.5.RELEASE</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+```
+
+然后在 `dependencies` 中添加自己所需使用的依赖即可使用。
+
+#### 演示 Demo
+
+为了演示如何使用，Spring Cloud Alibaba 项目包含了一个子模块`spring-cloud-alibaba-examples`。此模块中提供了演示用的 example ，您可以阅读对应的 example 工程下的 readme 文档，根据里面的步骤来体验。
+
+Example 列表：
+
+[Sentinel Example](https://github.com/alibaba/spring-cloud-alibaba/tree/master/spring-cloud-alibaba-examples/sentinel-example/sentinel-core-example/readme-zh.md)
+
+[Nacos Config Example](https://github.com/alibaba/spring-cloud-alibaba/blob/master/spring-cloud-alibaba-examples/nacos-example/nacos-config-example/readme-zh.md)
+
+[Nacos Discovery Example](https://github.com/alibaba/spring-cloud-alibaba/blob/master/spring-cloud-alibaba-examples/nacos-example/nacos-discovery-example/readme-zh.md)
+
+[RocketMQ Example](https://github.com/alibaba/spring-cloud-alibaba/blob/master/spring-cloud-alibaba-examples/rocketmq-example/readme-zh.md)
+
+[Seata Example](https://github.com/alibaba/spring-cloud-alibaba/blob/master/spring-cloud-alibaba-examples/seata-example/readme-zh.md)
+
+[Alibaba Cloud OSS Example](https://github.com/alibaba/aliyun-spring-boot/tree/master/aliyun-spring-boot-samples/aliyun-oss-spring-boot-sample)
+
+[Alibaba Cloud SMS Example](https://github.com/alibaba/aliyun-spring-boot/tree/master/aliyun-spring-boot-samples/aliyun-sms-spring-boot-sample)
+
+[Alibaba Cloud SchedulerX Example](https://github.com/alibaba/aliyun-spring-boot)
+
+#### 版本管理规范
+
+项目的版本号格式为 x.x.x 的形式，其中 x 的数值类型为数字，从 0 开始取值，且不限于 0~9 这个范围。项目处于孵化器阶段时，第一位版本号固定使用 0，即版本号为 0.x.x 的格式。
+
+由于 Spring Boot 1 和 Spring Boot 2 在 Actuator 模块的接口和注解有很大的变更，且 spring-cloud-commons 从 1.x.x 版本升级到 2.0.0 版本也有较大的变更，因此我们采取跟 SpringBoot 版本号一致的版本:
+
+- 1.5.x 版本适用于 Spring Boot 1.5.x
+- 2.0.x 版本适用于 Spring Boot 2.0.x
+- 2.1.x 版本适用于 Spring Boot 2.1.x
+- 2.2.x 版本适用于 Spring Boot 2.2.x
+- 2021.x 版本适用于 Spring Boot 2.4.x
+
+**组件版本关系**
+
+[版本说明 · alibaba/spring-cloud-alibaba Wiki (github.com)](https://github.com/alibaba/spring-cloud-alibaba/wiki/版本说明)
+
+
+
+---
+
+### Spring Cloud Alibaba Nacos 服务注册和配置中心
+
+#### 简介
+
+Github地址：[alibaba/nacos: an easy-to-use dynamic service discovery, configuration and service management platform for building cloud native applications. (github.com)](https://github.com/alibaba/Nacos)
+
+官方手册：[什么是 Nacos](https://nacos.io/zh-cn/docs/what-is-nacos.html)
+
+官方案例：
+
+[Nacos Config](https://github.com/alibaba/spring-cloud-alibaba/blob/master/spring-cloud-alibaba-examples/nacos-example/nacos-config-example/readme-zh.md)
+
+[Nacos Discovery](https://github.com/alibaba/spring-cloud-alibaba/blob/master/spring-cloud-alibaba-examples/nacos-example/nacos-discovery-example/readme-zh.md)
+
+**为什么叫Nacos**
+
+* 前四个字母分别为Naming和Configuration的前两个字母，最后的s为Service。
+
+**是什么**
+
+* 一个更易于构建云原生应用的动态服务发现、配置管理和服务管理平台。
+* Nacos: Dynamic Naming and Configuration Service
+* Nacos就是注册中心＋配置中心的组合 -> Nacos = Eureka+Config+Bus
+
+**能干嘛**
+
+- 替代Eureka做服务注册中心
+- 替代Config做服务配置中心
+
+#### Nacos安装与运行
+
+##### 下载并解压
+
+nacos-server 1.4.1下载地址：https://github.com/alibaba/nacos/releases/download/1.4.1/nacos-server-1.4.1.zip
+
+下载解压，进入`bin`目录。
+
+##### 启动服务器
+
+Linux/Unix/Mac
+
+启动命令(standalone代表着单机模式运行，非集群模式):
+
+```shell
+sh startup.sh -m standalone
+```
+
+如果您使用的是ubuntu系统，或者运行脚本报错提示[[符号找不到，可尝试如下运行：
+
+```shell
+bash startup.sh -m standalone
+```
+
+Windows
+
+启动命令(standalone代表着单机模式运行，非集群模式):
+
+```shell
+startup.cmd -m standalone
+```
+
+##### 访问Nacos web管理界面
+
+```
+# 默认用户名和密码：nacos/nacos
+http://localhost:8848/nacos
+```
+
+
+
+##### 关闭服务器
+
+Linux/Unix/Mac
+
+```
+sh shutdown.sh
+```
+
+Windows
+
+```
+shutdown.cmd
+```
+
+或者双击shutdown.cmd运行文件。
+
+
+
+#### Nacos服务发现
+
+文档：[Nacos Spring Cloud 快速开始](https://nacos.io/zh-cn/docs/quick-start-spring-cloud.html)
+
+Nacos discovery文档：[Nacos discovery · alibaba/spring-cloud-alibaba Wiki (github.com)](https://github.com/alibaba/spring-cloud-alibaba/wiki/Nacos-discovery)
+
+
+
+创建两个服务提供者模块 cloud-alibaba-provider-nacos-payment9001/9002，此处以9001为例
+
+pom.xml
+
+此处父pom.xml已经有了cloud-alibaba依赖，此处使用的是2.2.0 RELEASE
+
+```xml
+<dependencyManagement>
+    <!--spring cloud alibaba 2.2.0.RELEASE-->
+    <dependency>
+        <groupId>com.alibaba.cloud</groupId>
+        <artifactId>spring-cloud-alibaba-dependencies</artifactId>
+        <version>${spring-cloud-alibaba.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+    </dependency>
+</dependencyManagement>
+```
+
+子模块pom.xml
+
+```xml
+<!-- nacos discovery 服务发现 -->
+<dependency>
+    <groupId>com.alibaba.cloud</groupId>
+    <artifactId>spring-cloud-starter-alibaba-nacos-discovery</artifactId>
+</dependency>
+```
+
+**注意**
+
+Spring Cloud Alibaba已经从Spring Cloud孵化器中孵化成功。孵化成功后的最新版本是2.1.0。这一节来详细探讨如何将Spring Cloud Alibaba从0.9.0升级到2.1.0。
+
+从0.9.0开始，Maven的Group id发生了变化！
+
+0.9.0的Group id是 org.springframework.cloud
+0.9.0以上的版本是 com.alibaba.cloud
+这看起来还挺吓人的，而且此前也引发了一些吐槽。其实这主要是由于Spring Cloud考虑简化自己的Release Train（即：Spring Cloud自身的版本管理），于是修改了发布政策：非Spring Cloud团队维护的Spring Cloud的子项目，一律使用自己的GroupId即可，不再强制使用 org.springframework.cloud 。详情见：[Simplifying the Spring Cloud Release Train](https://spring.io/blog/2019/07/24/simplifying-the-spring-cloud-release-train)。
+
+
+
+application.yaml
+
+```yaml
+server:
+  port: 9001
+spring:
+  application:
+    name: cloud-alibaba-provider-nacos-payment9001
+  cloud:
+    nacos: # nacos
+      discovery: # 服务发现
+        service: cloud-alibaba-provider-nacos-payment-service
+        server-addr: 127.0.0.1:8848
+
+```
+
+启动类
+
+```java
+package com.hyd.springcloud;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.cloud.client.discovery.EnableDiscoveryClient;
+
+@SpringBootApplication
+@EnableDiscoveryClient
+public class PaymentNacosMain9001 {
+    public static void main(String[] args) {
+        SpringApplication.run(PaymentNacosMain9001.class,args);
+    }
+}
+
+```
+
+controller层
+
+```java
+package com.hyd.springcloud.controller.com.hyd.springcloud;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+public class PaymentController {
+    @Value("${server.port}")
+    private String serverPort;
+
+    @GetMapping("/payment/nacos/{id}")
+    public String getPayment(@PathVariable("id") Integer id){
+        return "nacos payment ---> "+serverPort+" ,id: "+id;
+    }
+}
+
+```
+
+
+
+创建一个服务消费者模块cloud-alibaba-consumer-nacos-order80
+
+pom.xml
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <parent>
+        <artifactId>cloud2021</artifactId>
+        <groupId>com.hyd.springcloud</groupId>
+        <version>1.0-SNAPSHOT</version>
+    </parent>
+    <modelVersion>4.0.0</modelVersion>
+    <artifactId>cloud-alibaba-consumer-nacos-order80</artifactId>
+
+    <dependencies>
+        <!-- nacos discovery 服务发现 -->
+        <dependency>
+            <groupId>com.alibaba.cloud</groupId>
+            <artifactId>spring-cloud-starter-alibaba-nacos-discovery</artifactId>
+        </dependency>
+        <!-- web -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <!-- actuator -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <!-- 日常通用配置 -->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+    </dependencies>
+</project>
+```
+
+application.yaml
+
+```yaml
+server:
+  port: 80
+spring:
+  application:
+    name: cloud-alibaba-consumer-nacos-order80
+  cloud:
+    nacos:
+      discovery:
+        server-addr: 127.0.0.1:8848
+```
+
+启动类
+
+```java
+package com.hyd.springcloud;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.cloud.client.discovery.EnableDiscoveryClient;
+
+@SpringBootApplication
+@EnableDiscoveryClient
+public class OrderNacosMain80 {
+    public static void main(String[] args) {
+        SpringApplication.run(OrderNacosMain80.class,args);
+    }
+}
+
+```
+
+为什么nacos支持负载均衡？因为spring-cloud-starter-alibaba-nacos-discovery内含netflix-ribbon包
+
+配置类
+
+```java
+package com.hyd.springcloud.config;
+
+import org.springframework.cloud.client.loadbalancer.LoadBalanced;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.web.client.RestTemplate;
+
+@Configuration
+public class ApplicationContextConfig {
+    @Bean
+    @LoadBalanced
+    RestTemplate restTemplate(){
+        return new RestTemplate();
+    }
+}
+
+```
+
+controller层
+
+```java
+package com.hyd.springcloud.controller;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.RestTemplate;
+
+@RestController
+public class OrderController {
+    @Autowired
+    private RestTemplate restTemplate;
+
+    @Value("${server.port}")
+    private String serverPort;
+
+    private static final String PROVIDER_SERVICE="cloud-alibaba-provider-nacos-payment-service";
+
+    @GetMapping("/consumer/payment/nacos/{id}")
+    public String getPayment(@PathVariable("id") Integer id){
+        return restTemplate.getForObject("http://"+PROVIDER_SERVICE+"/payment/nacos/"+id,String.class)+"---> server.port: "+serverPort;
+    }
+}
+
+```
+
+
+
+启动服务，访问：http://localhost/consumer/payment/nacos/11
+
+```
+nacos payment ---> 9002 ,id: 11---> server.port: 80
+nacos payment ---> 9001 ,id: 11---> server.port: 80
+...
+```
+
+同时通过nacos web管理界面，查看微服务信息http://localhost:8848/nacos
+
+
+
+#### Nacos服务注册中心对比提升
+
+Nacos生态图
+
+![Nacos生态图](https://cdn.nlark.com/lark/0/2018/png/11189/1533045871534-e64b8031-008c-4dfc-b6e8-12a597a003fb.png)
+
+
+
+Nacos CAP
+Nacos与其他注册中心特性对比
+
+略
+
+Nacos服务发现实例模型
+
+略
+
+**Nacos支持AP和CP模式的切换**
+
+C是所有节点在同一时间看到的数据是一致的;而A的定义是所有的请求都会收到响应。
+
+**何时选择使用何种模式?**
+
+—般来说，如果不需要存储服务级别的信息且服务实例是通过nacos-client注册，并能够保持心跳上报，那么就可以选择AP模式。当前主流的服务如Spring cloud和Dubbo服务，都适用于AP模式，AP模式为了服务的可能性而减弱了一致性，因此AP模式下只支持注册临时实例。
+
+如果需要在服务级别编辑或者存储配置信息，那么CP是必须，K8S服务和DNS服务则适用于CP模式。CP模式下则支持注册持久化实例，此时则是以Raft协议为集群运行模式，该模式下注册实例之前必须先注册服务，如果服务不存在，则会返回错误。
+
+切换命令：
+
+```shell
+curl -X PUT '$NACOS_SERVER:8848/nacos/v1/ns/operator/switches?entry=serverMode&value=CP
+```
+
+#### Nacos 配置管理
+
+**官方文档**：[Nacos Spring Cloud 快速开始](https://nacos.io/zh-cn/docs/quick-start-spring-cloud.html)
+
+**官方wiki**：[Nacos config · alibaba/spring-cloud-alibaba Wiki (github.com)](https://github.com/alibaba/spring-cloud-alibaba/wiki/Nacos-config)
+
+
+
+##### 基础配置
+
+###### Nacos 服务端初始化
+
+启动服务：
+
+```shell
+startup.cmd -m standalone
+```
+
+添加或配置配置文件：
+
+配置Data ID：
+
+dataid是以 properties(默认的文件扩展名方式)为扩展名。可以在应用的 bootstrap.yaml配置文件中显示的声明 dataid 文件扩展名。配置为：`spring.cloud.nacos.config.file-extension=yaml`。
+
+配置内容：
+
+略。
+
+Data ID命名规则：
+
+```
+${spring.application.name}.${file-extension:properties} # abc-.yaml
+${spring.application.name}-${profile}.${file-extension:properties # abc-dev.yaml
+```
+
+多套配置时，使用：`spring.profiles.active=develop`指定选择的配置文件
+
+支持配置的动态更新
+
+可以通过配置 `spring.cloud.nacos.config.refresh.enabled=false` 来关闭动态刷新，默认开启。（官方文档介绍使用`@RefreshScope`注解，实测现版本默认开启，无需该注解）
+
+
+
+创建config客户端子模块cloud-alibaba-nacos-config-client3358
+
+pom.xml
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <parent>
+        <artifactId>cloud2021</artifactId>
+        <groupId>com.hyd.springcloud</groupId>
+        <version>1.0-SNAPSHOT</version>
+    </parent>
+    <modelVersion>4.0.0</modelVersion>
+    <artifactId>cloud-alibaba-nacos-config-client3358</artifactId>
+
+    <dependencies>
+        <!-- naocs config -->
+        <dependency>
+            <groupId>com.alibaba.cloud</groupId>
+            <artifactId>spring-cloud-starter-alibaba-nacos-config</artifactId>
+        </dependency>
+        <!-- web -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+    </dependencies>
+</project>
+```
+
+
+
+nacos服务器地址可以通过以下几方式指定：
+
+```properties
+# discovery
+spring.cloud.nacos.discovery.server-addr:127.0.0.1:8848
+# config
+spring.cloud.nacos.config.server-addr:127.0.0.1:8848
+#
+spring.cloud.nacos.server-addr:127.0.0.1:8848
+```
+
+bootstrap.yaml
+
+```yaml
+# 系统级的配置文件
+spring:
+  application:
+    name: cloud-alibaba-nacos-config-client3358
+  cloud:
+    nacos:
+      config:
+#        server-addr: 127.0.0.1:8848 # 配置nacos server地址
+        file-extension: yaml # 显示的声明 dataid 文件扩展名
+      server-addr: 127.0.0.1:8848
+```
+
+application.yaml
+
+```yaml
+# 用户级的配置文件
+server:
+  port: 3358
+spring:
+  profiles:
+    active: dev # 当前激活配置（多个配置文件）
+```
+
+启动类
+
+```java
+package com.hyd.springcloud;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class NacosConfigClientMain3358 {
+    public static void main(String[] args) {
+        SpringApplication.run(NacosConfigClientMain3358.class,args);
+    }
+}
+
+```
+
+controller层
+
+```java
+package com.hyd.springcloud.controller;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.env.Environment;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+public class NacosConfigClientController {
+    @Autowired
+    private Environment environment;
+
+    @GetMapping("/nacos/config")
+    public String getConfig(){
+        String applicationName = environment.getProperty("spring.application.name");
+        String name = environment.getProperty("user.name");
+        String age = environment.getProperty("user.age");
+        String profile = environment.getProperty("user.profile");
+        return applicationName+" ,\t"+name+" ,\t"+age+" ,\t"+profile;
+    }
+}
+
+```
+
+启动服务，发送请求：
+
+```shell
+curl -X GET http://localhost:3358/nacos/config
+```
+
+```
+cloud-alibaba-nacos-config-client3358 ,	zhangsan ,	20 ,	dev
+```
+
+nacos服务端配置文件修改以后，动态的刷新了配置。
+
+
+
+
+
+##### 进阶配置
+
+**支持自定义 namespace 的配置**
+
+首先看一下 Nacos 的 Namespace 的概念， [Nacos 概念](https://nacos.io/zh-cn/docs/concepts.html)
+
+> 用于进行租户粒度的配置隔离。不同的命名空间下，可以存在相同的 Group 或 Data ID 的配置。Namespace 的常用场景之一是不同环境的配置的区分隔离，例如开发测试环境和生产环境的资源（如配置、服务）隔离等。
+
+在没有明确指定 `${spring.cloud.nacos.config.namespace}` 配置的情况下， 默认使用的是 Nacos 上 Public 这个namespae。如果需要使用自定义的命名空间，可以通过以下配置来实现：
+
+```
+spring.cloud.nacos.config.namespace=b3404bc0-d7dc-4855-b519-570ed34b62d7
+```
+
+| Note | 该配置必须放在 bootstrap.properties 文件中。此外 `spring.cloud.nacos.config.namespace` 的值是 namespace 对应的 id，id 值可以在 Nacos 的控制台获取。并且在添加配置时注意不要选择其他的 namespae，否则将会导致读取不到正确的配置。 |
+| ---- | ------------------------------------------------------------ |
+|      |                                                              |
+
+**支持自定义 Group 的配置**
+
+在没有明确指定 `${spring.cloud.nacos.config.group}` 配置的情况下， 默认使用的是 DEFAULT_GROUP 。如果需要自定义自己的 Group，可以通过以下配置来实现：
+
+```
+spring.cloud.nacos.config.group=DEVELOP_GROUP
+```
+
+| Note | 该配置必须放在 bootstrap.properties 文件中。并且在添加配置时 Group 的值一定要和 `spring.cloud.nacos.config.group` 的配置值一致。 |
+| ---- | ------------------------------------------------------------ |
+|      |                                                              |
+
+**支持自定义扩展的 Data Id 配置**
+
+Spring Cloud Alibaba Nacos Config 从 0.2.1 版本后，可支持自定义 Data Id 的配置。关于这部分详细的设计可参考 [这里](https://github.com/spring-cloud-incubator/spring-cloud-alibaba/issues/141)。 一个完整的配置案例如下所示：
+
+```
+spring.application.name=opensource-service-provider
+spring.cloud.nacos.config.server-addr=127.0.0.1:8848
+
+# config external configuration
+# 1、Data Id 在默认的组 DEFAULT_GROUP,不支持配置的动态刷新
+spring.cloud.nacos.config.extension-configs[0].data-id=ext-config-common01.properties
+
+# 2、Data Id 不在默认的组，不支持动态刷新
+spring.cloud.nacos.config.extension-configs[1].data-id=ext-config-common02.properties
+spring.cloud.nacos.config.extension-configs[1].group=GLOBALE_GROUP
+
+# 3、Data Id 既不在默认的组，也支持动态刷新
+spring.cloud.nacos.config.extension-configs[2].data-id=ext-config-common03.properties
+spring.cloud.nacos.config.extension-configs[2].group=REFRESH_GROUP
+spring.cloud.nacos.config.extension-configs[2].refresh=true
+```
+
+可以看到:
+
+- 通过 `spring.cloud.nacos.config.extension-configs[n].data-id` 的配置方式来支持多个 Data Id 的配置。
+- 通过 `spring.cloud.nacos.config.extension-configs[n].group` 的配置方式自定义 Data Id 所在的组，不明确配置的话，默认是 DEFAULT_GROUP。
+- 通过 `spring.cloud.nacos.config.extension-configs[n].refresh` 的配置方式来控制该 Data Id 在配置变更时，是否支持应用中可动态刷新， 感知到最新的配置值。默认是不支持的。
+
+| Note | 多个 Data Id 同时配置时，他的优先级关系是 `spring.cloud.nacos.config.extension-configs[n].data-id` 其中 n 的值越大，优先级越高。 |
+| ---- | ------------------------------------------------------------ |
+|      |                                                              |
+
+| Note | `spring.cloud.nacos.config.extension-configs[n].data-id` 的值必须带文件扩展名，文件扩展名既可支持 properties，又可以支持 yaml/yml。 此时 `spring.cloud.nacos.config.file-extension` 的配置对自定义扩展配置的 Data Id 文件扩展名没有影响。 |
+| ---- | ------------------------------------------------------------ |
+|      |                                                              |
+
+通过自定义扩展的 Data Id 配置，既可以解决多个应用间配置共享的问题，又可以支持一个应用有多个配置文件。
+
+为了更加清晰的在多个应用间配置共享的 Data Id ，你可以通过以下的方式来配置：
+
+```
+# 配置支持共享的 Data Id
+spring.cloud.nacos.config.shared-configs[0].data-id=common.yaml
+
+# 配置 Data Id 所在分组，缺省默认 DEFAULT_GROUP
+spring.cloud.nacos.config.shared-configs[0].group=GROUP_APP1
+
+# 配置Data Id 在配置变更时，是否动态刷新，缺省默认 false
+spring.cloud.nacos.config.shared-configs[0].refresh=true
+```
+
+可以看到：
+
+- 通过 `spring.cloud.nacos.config.shared-configs[n].data-id` 来支持多个共享 Data Id 的配置。
+- 通过 `spring.cloud.nacos.config.shared-configs[n].group` 来配置自定义 Data Id 所在的组，不明确配置的话，默认是 DEFAULT_GROUP。
+- 通过 `spring.cloud.nacos.config.shared-configs[n].refresh` 来控制该Data Id在配置变更时，是否支持应用中动态刷新，默认false。
+
+**配置的优先级**
+
+Spring Cloud Alibaba Nacos Config 目前提供了三种配置能力从 Nacos 拉取相关的配置。
+
+- A: 通过 `spring.cloud.nacos.config.shared-configs[n].data-id` 支持多个共享 Data Id 的配置
+- B: 通过 `spring.cloud.nacos.config.extension-configs[n].data-id` 的方式支持多个扩展 Data Id 的配置
+- C: 通过内部相关规则(应用名、应用名+ Profile )自动生成相关的 Data Id 配置
+
+当三种方式共同使用时，他们的一个优先级关系是:A < B < C
+
+**完全关闭配置**
+
+通过设置 spring.cloud.nacos.config.enabled = false 来完全关闭 Spring Cloud Nacos Config
+
+
+
+
+
+#### Nacos集群和持久化配置
+
+##### 部署
+
+**Nacos支持三种部署模式**
+
+- 单机模式 - 用于测试和单机试用。
+- 集群模式 - 用于生产环境，确保高可用。
+- 多集群模式 - 用于多数据中心场景
+
+**单机模式运行**
+
+```shell
+# Linux/Unix/Mac
+sh startup.sh -m standalone
+# Windows
+startup.cmd -m standalone
+```
+
+**单机模式支持mysql**
+
+在0.7版本之前，在单机模式时nacos使用嵌入式数据库实现数据的存储，不方便观察数据存储的基本情况。0.7版本增加了支持mysql数据源能力，具体的操作步骤：
+
+- 1.安装数据库，版本要求：5.6.5+
+- 2.初始化mysql数据库，数据库初始化文件：nacos-mysql.sql（位置：`nacos-1.4.1\conf\nacos-mysql.sql`）。
+- 3.修改conf/application.properties文件，增加支持mysql数据源配置（目前只支持mysql），添加mysql数据源的url、用户名和密码。（位置：`nacos-1.4.1\conf\application.properties`）。
+
+```properties
+spring.datasource.platform=mysql
+
+db.num=1
+db.url.0=jdbc:mysql://11.162.196.16:3306/nacos_devtest?characterEncoding=utf8&connectTimeout=1000&socketTimeout=3000&autoReconnect=true
+db.user=nacos_devtest
+db.password=youdontknow
+```
+
+
+
+按照文档，创建本地数据库
+
+```mysql
+CREATE DATABASE nacos_config;
+```
+
+执行脚本，修改application.properties
+
+```properties
+# <--- nacos mysql 数据源配置 start ---> #
+spring.datasource.platform=mysql
+db.num=1
+db.url.0=jdbc:mysql://127.0.0.1:3306/nacos_config?characterEncoding=utf8&connectTimeout=1000&socketTimeout=3000&autoReconnect=true&useUnicode=true&useSSL=false&serverTimezone=UTC
+db.user.0=root
+db.password.0=123456
+# <--- nacos mysql 数据源配置 end ---> #
+```
+
+再以单机模式启动nacos，nacos所有写嵌入式数据库的数据都写到了mysql，数据源切换成功。
+
+
+
+本次主要介绍集群模式下运行Nacos
+
+##### Nacos集群部署
+
+
+
+**集群部署架构图**
+
+因此开源的时候推荐用户把所有服务列表放到一个vip下面，然后挂到一个域名下面
+
+[http://ip1](http://ip1/):port/openAPI 直连ip模式，机器挂则需要修改ip才可以使用。
+
+[http://SLB](http://slb/):port/openAPI 挂载SLB模式(内网SLB，不可暴露到公网，以免带来安全风险)，直连SLB即可，下面挂server真实ip，可读性不好。
+
+[http://nacos.com](http://nacos.com/):port/openAPI 域名 + SLB模式(内网SLB，不可暴露到公网，以免带来安全风险)，可读性好，而且换ip方便，推荐模式
+
+![集群部署架构图](https://nacos.io/img/deployDnsVipMode.jpg)
+
+
+
+1. 预备环境准备
+   请确保是在环境中安装使用:
+
+   1. 64 bit OS Linux/Unix/Mac，推荐使用Linux系统。
+   2. 64 bit JDK 1.8+；[下载](http://www.oracle.com/technetwork/java/javase/downloads/jdk8-downloads-2133151.html).[配置](https://docs.oracle.com/cd/E19182-01/820-7851/inst_cli_jdk_javahome_t/)。
+   3. Maven 3.2.x+；[下载](https://maven.apache.org/download.cgi).[配置](https://maven.apache.org/settings.html)。
+   4. 3个或3个以上Nacos节点才能构成集群。
+
+2. 下载安装包并配置环境（以nacos-server 1.1.4版本为例）
+   下载地址：https://github.com/alibaba/nacos/releases/download/1.1.4/nacos-server-1.1.4.tar.gz
+   解压：
+
+   ```shell
+   sudo tar -zxvf nacos-server-1.1.4.tar.gz
+   mv nacos nacos-server-1.1.4
+   cd nacos-server-1.1.4
+   ```
+
+   nacos默认自带的是嵌入式数据库derby，官方源码pom.xml中：
+
+   ```xml
+   <dependency>
+       <groupId>org.apache.derby</groupId>
+       <artifactId>derby</artifactId>
+       <version>${derby.version}</version>
+   </dependency>
+   ```
+
+   切换数据源到mysql：
+
+   ```mysql
+   CREATE DATABASE nacos_config;
+   ```
+
+   执行脚本：
+
+   ```shell
+   sudo mysql -u hyd -p;# 密码123456
+   mysql> use nacos_config;
+   mysql> source /usr/local/nacos/nacos-server-1.1.4/conf/nacos-mysql.sql;
+   ```
+
+   修改application.properties
+
+   ```shell
+   sudo vim application.properties
+   ```
+
+   添加以下内容：
+
+   ```properties
+   # <--- nacos mysql 数据源配置 start ---> #
+   spring.datasource.platform=mysql
+   db.num=1
+   db.url.0=jdbc:mysql://127.0.0.1:3306/nacos_config?characterEncoding=utf8&connectTimeout=1000&socketTimeout=3000&autoReconnect=true&useUnicode=true&useSSL=false&serverTimezone=UTC
+   db.user.0=hyd
+   db.password.0=123456
+   # <--- nacos mysql 数据源配置 end ---> #
+   ```
+
+   查看linux主机ip地址：10.9.22.145
+
+   ```shell
+   [hyd@10-9-22-145 conf]$ hostname -I
+   10.9.22.145 172.17.0.1 
+   [hyd@10-9-22-145 conf]$ ip addr | grep inet
+       inet 127.0.0.1/8 scope host lo
+       inet6 ::1/128 scope host 
+       inet 10.9.22.145/16 brd 10.9.255.255 scope global eth0
+       inet6 fe80::5054:ff:fe94:780a/64 scope link 
+       inet 172.17.0.1/16 brd 172.17.255.255 scope global docker0
+       inet6 fe80::42:e1ff:fe68:4db2/64 scope link 
+       inet6 fe80::5045:dcff:fe3b:d637/64 scope link 
+   [hyd@10-9-22-145 conf]$
+   ```
+
+   
+
+   在nacos的解压目录nacos/的conf目录下，有配置文件cluster.conf，请每行配置成ip:port，此处伪集群配置演示。（请配置3个或3个以上节点）
+
+   ```conf
+   # ip:port
+   10.9.22.145:3301
+   10.9.22.145:3302
+   10.9.22.145:3303
+   ```
+
+   修改`startup.sh`启动脚本
+
+   修改`while getopts ":m:f:s:" opt` → `while getopts ":m:f:s:p:" opt`；，新增
+
+           p)
+               PORT=$OPTARG;;
+
+   nohup新增`- Dserver.port=${PORT}`
+
+   ```sh
+   while getopts ":m:f:s:p:" opt
+   do
+       case $opt in
+           m)
+               MODE=$OPTARG;;
+           f)
+               FUNCTION_MODE=$OPTARG;;
+           s)
+               SERVER=$OPTARG;;
+           p)
+               PORT=$OPTARG;;
+           ?)
+           echo "Unknown parameter"
+           exit 1;;
+       esac
+   done
+   ```
+
+   ```sh
+   nohup $JAVA -Dserver.port=${PORT} ${JAVA_OPT} nacos.nacos >> ${BASE_DIR}/logs/start.out
+   ```
+
+   启动测试，`sudo startup.sh -p 3301`报错：
+
+   ```
+   ERROR: Please set the JAVA_HOME variable in your environment, We need java(x64)! jdk8 or later is better! !!
+   ```
+   
+   修改`startup.sh`脚本，设置java环境变量
+   
+   ```
+   [ ! -e "$JAVA_HOME/bin/java" ] && JAVA_HOME=/usr/local/java/jdk1.8.0_281
+   ```
+   
+   再次启动报错，查看`/logs/start.out`日志，修改java启动参数，减少启动内存
+   
+   ```
+   # 原参数
+   JAVA_OPT="${JAVA_OPT} -server -Xms2g -Xmx2g -Xmn1g -XX:MetaspaceSize=128m -XX:MaxMetaspaceSize=320m"
+   # 修改后
+   JAVA_OPT="${JAVA_OPT} -server -Xms256m -Xmx256m -Xmn128m -XX:MetaspaceSize=128m -XX:MaxMetaspaceSize=320m"
+   ```
+   
+   查看nacos进程启动数
+   
+   ```shell
+   ps -ef | grep nacos | grep -v grep | wc -l
+   ```
+   
+   ```
+   3
+   ```
+   
+   
+   
+   配置nginx
+   
+   修改nginx配置文件nginx.conf
+   
+   ```
+   # nacos 集群 begin #
+   upstream nacos-cluster{
+   	server 127.0.0.1:3301;
+   	server 127.0.0.1:3302;
+   	server 127.0.0.1:3303;
+   }
+   server {
+   	listen 3300;
+   	server_name nacos_server;
+   	location / {
+   		proxy_pass http://nacos-cluster;
+   	}
+   }
+   # nacos 集群 end #
+   ```
+   
+   此处注意，如果headername包含下划线会报错400，nginx对header name的字符做了限制，默认 underscores_in_headers 为off，表示如果header name中包含下划线，则忽略掉。可以在http块配置：
+   
+   ```
+   http {
+       underscores_in_headers on;
+   }
+   ```
+   
+   或者设置`proxy_set_header HOST $host;`
+   
+   访问：`http://117.50.3.120:3300/nacos`，成功访问到nacos web管理界面
+   
+   注意上述过程，需要开启服务器对应端口防火墙，允许对应端口外网访问。
+   
+   上述启动成功后，nacos web界面，节点列表如下：
+   
+   | 节点Ip           | 节点状态 | 集群任期 | Leader止时(ms) | 心跳止时(ms) |
+   | :--------------- | :------- | :------- | :------------- | :----------- |
+   | 10.9.22.145:3301 | FOLLOWER | 3        | 15070          | 4000         |
+   | 10.9.22.145:3302 | FOLLOWER | 3        | 15388          | 3500         |
+   | 10.9.22.145:3303 | LEADER   | 3        | 16637          | 4000         |
+
+
+
+创建模块cloud-alibaba-nacos-config-cluster-client3358
+
+引入discovery和config依赖
+
+bootstrap.yaml
+
+```yaml
+# 系统级的配置文件
+spring:
+  application:
+    name: cloud-alibaba-nacos-config-cluster-client3358
+  cloud:
+    nacos:
+      config:
+        file-extension: yaml # 显示的声明 dataid 文件扩展名
+      server-addr: 117.50.3.120:3300 # nginx地址，对应转发到nacos集群上
+```
+
+启动服务
+
+应用后台报错：
+
+```
+nacos server is STARTING now, please try again later!
+```
+
+```
+failed to req API:http://117.50.3.120:3300/nacos/v1/ns/instance
+```
+
+start.out日志
+
+```
+2021-05-27 20:05:10,084 INFO Nacos is starting...
+```
+
+nacos.log日志
+
+```
+java.lang.IllegalStateException: unable to find local peer: 10.9.22.145:3303, all peers: [200.8.9.17:8848, 200.8.9.16:8848, 200.8.9.18:8848]
+```
+
+定位到是nacos未成功启动，cluster.conf配置文件莫名其妙变成了200.8.9.17:8848等等，重新修改为内网ip+自定义端口。
+
+启动服务，发送请求
+
+```
+curl -X GET http://117.50.3.120:3300/nacos/v1/ns/instance/list?serviceName=cloud-alibaba-nacos-config-cluster-client3358
+```
+
+```json
+{
+    "metadata":{
+
+    },
+    "dom":"cloud-alibaba-nacos-config-cluster-client3358",
+    "cacheMillis":3000,
+    "useSpecifiedURL":false,
+    "hosts":[
+        {
+            "valid":true,
+            "marked":false,
+            "metadata":{
+                "preserved.register.source":"SPRING_CLOUD"
+            },
+            "instanceId":"192.168.1.106#3358#DEFAULT#DEFAULT_GROUP@@cloud-alibaba-nacos-config-cluster-client3358",
+            "port":3358,
+            "healthy":true,
+            "ip":"192.168.1.106",
+            "clusterName":"DEFAULT",
+            "weight":"1.0",
+            "ephemeral":true,
+            "serviceName":"cloud-alibaba-nacos-config-cluster-client3358",
+            "enabled":true
+        }
+    ],
+    "name":"DEFAULT_GROUP@@cloud-alibaba-nacos-config-cluster-client3358",
+    "checksum":"c12d4def76439f701dd1a1813d0b8d20",
+    "lastRefTime":1622117799906,
+    "env":"",
+    "clusters":""
+}
+```
+
+发送请求
+
+```
+curl -X GET http://localhost:3358/nacos/config
+```
+
+```
+cloud-alibaba-nacos-config-cluster-client3358 , zhangsan ,      20 ,    dev
+```
+
+可通过发送请求配置或获取数据
+
+
+
+---
+
+
+
+### Spring Cloud Alibaba Nacos 实现熔断与限流
+
+#### 简介
+
+官网：[home (sentinelguard.io)](https://sentinelguard.io/zh-cn/)
+
+官网文档：[introduction (sentinelguard.io)](https://sentinelguard.io/zh-cn/docs/introduction.html)
+
+官方wiki：[Sentinel · alibaba/spring-cloud-alibaba Wiki (github.com)](https://github.com/alibaba/spring-cloud-alibaba/wiki/Sentinel)
+
+官方：[sentinel-example](https://github.com/alibaba/spring-cloud-alibaba/blob/master/spring-cloud-alibaba-examples/sentinel-example/sentinel-core-example/readme-zh.md)
+
+**什么是sentinel**
+
+随着微服务的流行，服务和服务之间的稳定性变得越来越重要。Sentinel 以流量为切入点，从流量控制、熔断降级、系统负载保护等多个维度保护服务的稳定性。sentinel是面向分布式服务框架的轻量级流量控制框架。
+
+主要特性：
+![主要特性](https://user-images.githubusercontent.com/9434884/50505538-2c484880-0aaf-11e9-9ffc-cbaaef20be2b.png)
+
+
+
+Sentinel 分为两个部分:
+
+- 核心库（Java 客户端）不依赖任何框架/库，能够运行于所有 Java 运行时环境，同时对 Dubbo / Spring Cloud 等框架也有较好的支持。
+- 控制台（Dashboard）基于 Spring Boot 开发，打包后可以直接运行，不需要额外的 Tomcat 等应用容器。
+
+
+
+Hystrix与Sentinel比较：
+
+- Hystrix
+  1. 需要我们程序员自己手工搭建监控平台
+  2. 没有一套web界面可以给我们进行更加细粒度化得配置流控、速率控制、服务熔断、服务降级
+- Sentinel
+  1. 单独一个组件，可以独立出来。
+  2. 直接界面化的细粒度统一配置。
+
+
+
+---
+
+
+
+### Spring Cloud Alibaba Nacos 处理分布式事务
+
+//todo
 
 
 

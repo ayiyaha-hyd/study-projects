@@ -1,0 +1,10 @@
+# 系统级的配置文件
+spring:
+  application:
+    name: cloud-alibaba-nacos-config-client3358
+  cloud:
+    nacos:
+      config:
+#        server-addr: 127.0.0.1:8848 # 配置nacos server地址
+        file-extension: yaml # 显示的声明 dataid 文件扩展名
+      server-addr: 127.0.0.1:8848

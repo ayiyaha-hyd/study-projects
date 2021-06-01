@@ -1,0 +1,11 @@
+server:
+  port: 8401
+spring:
+  application:
+    name: cloud-alibaba-sentinel-service8401
+  cloud:
+    sentinel:
+      transport:
+        port: 8719 # 一个http server与sentinel控制台交互端口
+        dashboard: localhost:8080 # sentinel控制台地址
+

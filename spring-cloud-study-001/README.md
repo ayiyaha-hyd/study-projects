@@ -8124,7 +8124,7 @@ cloud-alibaba-nacos-config-cluster-client3358 , zhangsan ,      20 ,    dev
 
 
 
-### Spring Cloud Alibaba Nacos 实现熔断与限流
+### Spring Cloud Alibaba Sentinel 实现熔断与限流
 
 #### 简介
 
@@ -8135,6 +8135,8 @@ cloud-alibaba-nacos-config-cluster-client3358 , zhangsan ,      20 ,    dev
 官方wiki：[Sentinel · alibaba/spring-cloud-alibaba Wiki (github.com)](https://github.com/alibaba/spring-cloud-alibaba/wiki/Sentinel)
 
 官方：[sentinel-example](https://github.com/alibaba/spring-cloud-alibaba/blob/master/spring-cloud-alibaba-examples/sentinel-example/sentinel-core-example/readme-zh.md)
+
+参考文档：[如何使用 · alibaba/Sentinel Wiki (github.com)](https://github.com/alibaba/Sentinel/wiki/如何使用)
 
 **什么是sentinel**
 
@@ -8150,6 +8152,52 @@ Sentinel 分为两个部分:
 - 核心库（Java 客户端）不依赖任何框架/库，能够运行于所有 Java 运行时环境，同时对 Dubbo / Spring Cloud 等框架也有较好的支持。
 - 控制台（Dashboard）基于 Spring Boot 开发，打包后可以直接运行，不需要额外的 Tomcat 等应用容器。
 
+**Sentinel基本概念**
+
+* 资源
+  资源是 Sentinel 的关键概念。它可以是 Java 应用程序中的任何内容，例如，由应用程序提供的服务，或由应用程序调用的其它应用提供的服务，甚至可以是一段代码。在接下来的文档中，我们都会用资源来描述代码块。
+  只要通过 Sentinel API 定义的代码，就是资源，能够被 Sentinel 保护起来。大部分情况下，可以使用方法签名，URL，甚至服务名称作为资源名来标示资源。
+
+* 规则
+  围绕资源的实时状态设定的规则，可以包括流量控制规则、熔断降级规则以及系统保护规则。所有规则可以动态实时调整。
+
+**Sentinel功能**
+
+* 流量控制
+
+  * 什么是流量控制
+    流量控制在网络传输中是一个常用的概念，它用于调整网络包的发送数据。然而，从系统稳定性角度考虑，在处理请求的速度上，也有非常多的讲究。任意时间到来的请求往往是随机不可控的，而系统的处理能力是有限的。我们需要根据系统的处理能力对流量进行控制。Sentinel 作为一个调配器，可以根据需要把随机的请求调整成合适的形状，如下图所示：
+    ![流量控制](https://github.com/alibaba/Sentinel/wiki/image/limitflow.gif)
+
+  * 流量控制设计理念
+
+    流量控制有以下几个角度:
+
+    - 资源的调用关系，例如资源的调用链路，资源和资源之间的关系；
+    - 运行指标，例如 QPS、线程池、系统负载等；
+    - 控制的效果，例如直接限流、冷启动、排队等。
+
+* 熔断降级
+
+  * 在限制的手段上，Sentinel 和 Hystrix 采取了完全不一样的方法。
+
+    Hystrix 通过 [线程池隔离](https://github.com/Netflix/Hystrix/wiki/How-it-Works#benefits-of-thread-pools) 的方式，来对依赖（在 Sentinel 的概念中对应 *资源*）进行了隔离。这样做的好处是资源和资源之间做到了最彻底的隔离。缺点是除了增加了线程切换的成本（过多的线程池导致线程数目过多），还需要预先给各个资源做线程池大小的分配。
+
+    Sentinel 对这个问题采取了两种手段:
+
+    - 通过并发线程数进行限制
+
+    和资源池隔离的方法不同，Sentinel 通过限制资源并发线程的数量，来减少不稳定资源对其它资源的影响。这样不但没有线程切换的损耗，也不需要您预先分配线程池的大小。当某个资源出现不稳定的情况下，例如响应时间变长，对资源的直接影响就是会造成线程数的逐步堆积。当线程数在特定资源上堆积到一定的数量之后，对该资源的新请求就会被拒绝。堆积的线程完成任务后才开始继续接收请求。
+
+    - 通过响应时间对资源进行降级
+
+    除了对并发线程数进行控制以外，Sentinel 还可以通过响应时间来快速降级不稳定的资源。当依赖的资源出现响应时间过长后，所有对该资源的访问都会被直接拒绝，直到过了指定的时间窗口之后才重新恢复。
+
+* 系统自适应保护
+  Sentinel 同时提供系统维度的自适应保护能力。防止雪崩，是系统防护中重要的一环。当系统负载较高的时候，如果还持续让请求进入，可能会导致系统崩溃，无法响应。在集群环境下，网络负载均衡会把本应这台机器承载的流量转发到其它的机器上去。如果这个时候其它的机器也处在一个边缘状态的时候，这个增加的流量就会导致这台机器也崩溃，最后导致整个集群不可用。
+
+  针对这个情况，Sentinel 提供了对应的保护机制，让系统的入口流量和系统的负载达到一个平衡，保证系统在能力范围之内处理最多的请求。
+
 
 
 Hystrix与Sentinel比较：
@@ -8163,13 +8211,2018 @@ Hystrix与Sentinel比较：
 
 
 
+##### Sentinel 控制台
+
+Sentinel 提供一个轻量级的开源控制台，它提供机器发现以及健康情况管理、监控（单机和集群），规则管理和推送的功能。（实时监控，规则管理）。
+
+**下载控制台jar包**
+
+https://github.com/alibaba/Sentinel/releases
+
+**启动控制台**
+
+启动命令：
+
+```bash
+java -Dserver.port=8080 -Dcsp.sentinel.dashboard.server=localhost:8080 -Dproject.name=sentinel-dashboard -jar sentinel-dashboard.jar
+```
+
+
+
+#### 流量控制
+
+**埋点**
+
+埋点指的是针对特定用户行为或事件进行捕获、处理和发送的相关技术及其实施过程。学名叫事件追踪，数据埋点是一种常用的数据采集的方法。
+
+**资源**
+
+**资源** 是 Sentinel 中的核心概念之一。最常用的资源是我们代码中的 Java 方法。Sentinel 提供了 `@SentinelResource` 注解用于定义资源。
+
+**@SentinelResource 注解**
+
+> 注意：注解方式埋点不支持 private 方法。
+
+`@SentinelResource` 用于定义资源，并提供可选的异常处理和 fallback 配置项。
+
+**接入限流埋点**
+
+- HTTP 埋点
+
+  Sentinel starter 默认为所有的 HTTP 服务提供了限流埋点，如果只想对 HTTP 服务进行限流，那么只需要引入依赖，无需修改代码。
+
+- 自定义埋点
+
+  如果需要对某个特定的方法进行限流或降级，可以通过 `@SentinelResource` 注解来完成限流的埋点，示例代码如下：
+
+  ```
+   @SentinelResource("resource")
+   public String hello() {
+       return "Hello";
+   }
+  ```
+
+  当然也可以通过原始的 `SphU.entry(xxx)` 方法进行埋点，可以参见 [Sentinel 文档](https://github.com/alibaba/Sentinel/wiki/如何使用#定义资源)。
+
+**配置限流规则**
+
+Sentinel 提供了两种配置限流规则的方式：代码配置 和 控制台配置。本示例使用的方式为通过控制台配置。
+
+1. 通过代码来实现限流规则的配置。一个简单的限流规则配置示例代码如下，更多限流规则配置详情请参考 [Sentinel 文档](https://github.com/alibaba/Sentinel/wiki/如何使用#定义规则)。
+
+```
+List<FlowRule> rules = new ArrayList<FlowRule>();
+FlowRule rule = new FlowRule();
+rule.setResource(str);
+// set limit qps to 10
+rule.setCount(10);
+rule.setGrade(RuleConstant.FLOW_GRADE_QPS);
+rule.setLimitApp("default");
+rules.add(rule);
+FlowRuleManager.loadRules(rules);
+```
+
+1. 通过控制台进行限流规则配置（略）。
+
+
+
+**规则的种类**
+
+Sentinel 的所有规则都可以在内存态中动态地查询及修改，修改之后立即生效。同时 Sentinel 也提供相关 API，供您来定制自己的规则策略。
+
+Sentinel 支持以下几种规则：**流量控制规则**、**熔断降级规则**、**系统保护规则**、**来源访问控制规则** 和 **热点参数规则**。
+
+文档：[basic-api-resource-rule (sentinelguard.io)](https://sentinelguard.io/zh-cn/docs/basic-api-resource-rule.html)
+
+
+
+
+
+
+
+创建一个简单的演示案例：
+
+创建模块cloud-alibaba-sentinel-service8401
+
+pom.xml引入依赖
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <parent>
+        <artifactId>cloud2021</artifactId>
+        <groupId>com.hyd.springcloud</groupId>
+        <version>1.0-SNAPSHOT</version>
+    </parent>
+    <modelVersion>4.0.0</modelVersion>
+    <artifactId>cloud-alibaba-sentinel-service8401</artifactId>
+
+    <dependencies>
+        <!-- sentinel -->
+        <dependency>
+            <groupId>com.alibaba.cloud</groupId>
+            <artifactId>spring-cloud-starter-alibaba-sentinel</artifactId>
+        </dependency>
+        <!-- web -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <!-- lombok -->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+    </dependencies>
+
+</project>
+```
+
+application.yaml
+
+```yaml
+server:
+  port: 8401
+spring:
+  application:
+    name: cloud-alibaba-sentinel-service8401
+  cloud:
+    sentinel:
+      transport:
+        port: 8719 # 一个http server与sentinel控制台交互端口
+        dashboard: localhost:8080 # sentinel控制台地址
+```
+
+启动类
+
+```java
+package com.hyd.springcloud;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class SentinelServerMain8401 {
+    public static void main(String[] args) {
+        SpringApplication.run(SentinelServerMain8401.class,args);
+    }
+}
+
+```
+
+controller层
+
+```java
+package com.hyd.springcloud.controller;
+
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+@Slf4j
+public class SentinelController {
+
+    @GetMapping("/t1")
+    public String test1(){
+        log.info(Thread.currentThread().getName()+"--> "+"t1");
+        return "t1---";
+    }
+}
+
+```
+
+启动sentinel控制台(sentinel-dashboard)：
+
+```shell
+java -jar sentinel-dashboard.jar
+```
+
+默认访问地址：`http://localhost:8080/`
+
+启动服务。
+
+控制台监控为空，这是因为Sentinel 使用了 lazy load 策略（懒加载）。调用一下进行了 Sentinel 埋点的 URL 或方法，会发现控制台出现监控的应用。
+
+
+
+##### 流控规则
+
+**流控规则内容**
+
+* 资源名：限流的 URL 相对路径，或者 `@SentinelResource` 注解 `value` 字段的值；
+* 阈值类型/单机阈值；
+  * QPS：（每秒钟的请求数量︰当调用该API的QPS达到阈值的时候，进行限流） ；
+  * 线程数：当调用该API的线程数达到阈值的时候，进行限流；
+* 是否集群；
+* 流控模式： 
+  * 直接：API达到限流条件时，直接限流；
+  * 关联：当关联的资源达到阈值时，就限流；
+  * 链路 ：只记录指定链路上的流量（指定资源从入口资源进来的流量，如果达到阈值，就进行限流)【API级别的针对来源】；
+* 流控效果；
+  * 快速失败：直接失败，抛异常；
+  * Warm Up；根据Code Factor（冷加载因子，默认3）的值，从阈值/codeFactor，经过预热时长，才达到设置的QPS阈值；参考文档：[限流 冷启动 · alibaba/Sentinel Wiki (github.com)](https://github.com/alibaba/Sentinel/wiki/限流---冷启动)；
+  * 排队等待：匀速排队，让请求以匀速的速度通过，阈值类型必须设置为QPS，否则无效。
+
+**流控规则类型**
+
+* URL 限流规则。资源名填写需要限流的 URL 相对路径。
+* 自定义限流规则。资源名填写 `@SentinelResource` 注解 `value` 字段的值。
+
+[流量控制 · alibaba/Sentinel Wiki (github.com)](https://github.com/alibaba/Sentinel/wiki/流量控制)
+
+
+
+##### 降级规则
+
+* 资源名；
+* 降级策略；
+  * 慢调用比例（秒级）：RT平均响应时间 (`DEGRADE_GRADE_RT`)：当 1s 内持续进入 N 个请求，对应时刻的平均响应时间（秒级）均超过阈值（`count`，以 ms 为单位），那么在接下的时间窗口（`DegradeRule` 中的 `timeWindow`，以 s 为单位）之内，对这个方法的调用都会自动地熔断（抛出 `DegradeException`）；
+  * 异常比例（秒级）：单位时间异常比例超过规定值，触发降级；
+  * 异常数策略（分钟级）：单位时间异常数超过规定值，触发降级；
+* 时间窗口；
+
+[熔断降级 · alibaba/Sentinel Wiki (github.com)](https://github.com/alibaba/Sentinel/wiki/熔断降级)
+
+
+
+##### 热点规则
+
+热点即经常访问的数据。很多时候我们希望统计某个热点数据中访问频次最高的 Top K 数据，并对其访问进行限制。比如：
+
+- 商品 ID 为参数，统计一段时间内最常购买的商品 ID 并进行限制
+- 用户 ID 为参数，针对一段时间内频繁访问的用户 ID 进行限制
+
+热点参数限流会统计传入参数中的热点参数，并根据配置的限流阈值与模式，对包含热点参数的资源调用进行限流。热点参数限流可以看做是一种特殊的流量控制，仅对包含热点参数的资源调用生效。
+
+热点规则原理图：
+
+![热点规则](https://github.com/alibaba/Sentinel/wiki/image/sentinel-hot-param-overview-1.png)
+
+
+
+热点参数规则（`ParamFlowRule`）类似于流量控制规则（`FlowRule`）：
+
+| 属性              | 说明                                                         | 默认值   |
+| ----------------- | ------------------------------------------------------------ | -------- |
+| resource          | 资源名，必填                                                 |          |
+| count             | 限流阈值，必填                                               |          |
+| grade             | 限流模式                                                     | QPS 模式 |
+| durationInSec     | 统计窗口时间长度（单位为秒），1.6.0 版本开始支持             | 1s       |
+| controlBehavior   | 流控效果（支持快速失败和匀速排队模式），1.6.0 版本开始支持   | 快速失败 |
+| maxQueueingTimeMs | 最大排队等待时长（仅在匀速排队模式生效），1.6.0 版本开始支持 | 0ms      |
+| paramIdx          | 热点参数的索引，必填，对应 `SphU.entry(xxx, args)` 中的参数索引位置 |          |
+| paramFlowItemList | 参数例外项，可以针对指定的参数值单独设置限流阈值，不受前面 `count` 阈值的限制。**仅支持基本类型和字符串类型** |          |
+| clusterMode       | 是否是集群参数流控规则                                       | `false`  |
+| clusterConfig     | 集群流控相关配置                                             |          |
+
+[热点参数限流 · alibaba/Sentinel Wiki (github.com)](https://github.com/alibaba/Sentinel/wiki/热点参数限流)
+
+
+
+##### 系统规则
+
+系统保护规则是从应用级别的入口流量进行控制，从单台机器的 load、CPU 使用率、平均 RT、入口 QPS 和并发线程数等几个维度监控应用指标，让系统尽可能跑在最大吞吐量的同时保证系统整体的稳定性。
+
+系统保护规则是应用整体维度的，而不是资源维度的，并且**仅对入口流量生效**。入口流量指的是进入应用的流量（`EntryType.IN`），比如 Web 服务或 Dubbo 服务端接收的请求，都属于入口流量。
+
+系统规则支持以下的模式：
+
+- **Load 自适应**（仅对 Linux/Unix-like 机器生效）：系统的 load1 作为启发指标，进行自适应系统保护。当系统 load1 超过设定的启发值，且系统当前的并发线程数超过估算的系统容量时才会触发系统保护（BBR 阶段）。系统容量由系统的 `maxQps * minRt` 估算得出。设定参考值一般是 `CPU cores * 2.5`。
+- **CPU usage**（1.5.0+ 版本）：当系统 CPU 使用率超过阈值即触发系统保护（取值范围 0.0-1.0），比较灵敏。
+- **平均 RT**：当单台机器上所有入口流量的平均 RT 达到阈值即触发系统保护，单位是毫秒。
+- **并发线程数**：当单台机器上所有入口流量的并发线程数达到阈值即触发系统保护。
+- **入口 QPS**：当单台机器上所有入口流量的 QPS 达到阈值即触发系统保护。
+
+
+
+##### 自定义限流处理逻辑
+
+URL 限流触发后默认处理逻辑是，直接返回 "Blocked by Sentinel (flow limiting)"。
+
+使用 `@SentinelResource` 注解下的限流异常处理
+
+如果需要自定义处理逻辑，填写 `@SentinelResource` 注解的 `blockHandler` 属性（针对所有类型的 `BlockException`，需自行判断）或 `fallback` 属性（针对熔断降级异常），注意**对应方法的签名和位置有限制**，详情见 [Sentinel 注解支持文档](https://github.com/alibaba/Sentinel/wiki/注解支持#sentinelresource-注解)。示例实现如下：
+
+```java
+public class TestService {
+
+    // blockHandler 是位于 ExceptionUtil 类下的 handleException 静态方法，需符合对应的类型限制.
+    @SentinelResource(value = "test", blockHandler = "handleException", blockHandlerClass = {ExceptionUtil.class})
+    public void test() {
+        System.out.println("Test");
+    }
+
+    // blockHandler 是位于当前类下的 exceptionHandler 方法，需符合对应的类型限制.
+    @SentinelResource(value = "hello", blockHandler = "exceptionHandler")
+    public String hello(long s) {
+        return String.format("Hello at %d", s);
+    }
+
+    public String exceptionHandler(long s, BlockException ex) {
+        // Do some log here.
+        ex.printStackTrace();
+        return "Oops, error occurred at " + s;
+    }
+}
+public final class ExceptionUtil {
+
+    public static void handleException(BlockException ex) {
+        System.out.println("Oops: " + ex.getClass().getCanonicalName());
+    }
+}
+```
+
+[注解支持 · alibaba/Sentinel Wiki (github.com)](https://github.com/alibaba/Sentinel/wiki/注解支持)
+
+
+
+##### Endpoint 信息查看
+
+Spring Boot 应用支持通过 Endpoint 来暴露相关信息，Sentinel Starter 也支持这一点。
+
+在使用之前需要在 Maven 中添加 `spring-boot-starter-actuator`依赖，并在配置中允许 Endpoints 的访问。
+
+- Spring Boot 1.x 中添加配置 `management.security.enabled=false`
+- Spring Boot 2.x 中添加配置 `management.endpoints.web.exposure.include=*`
+
+Spring Boot 1.x 可以通过访问 http://127.0.0.1:8401/sentinel 来查看 Sentinel Endpoint 的信息。Spring Boot 2.x 可以通过访问 http://127.0.0.1:8401/actuator/sentinel 来访问。（8401为对应spring应用的端口）。
+
+pom.xml引入springboot监控依赖
+
+```xml
+<!-- actuaotr -->
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-actuator</artifactId>
+</dependency>
+```
+
+application.yaml
+
+```yaml
+management:
+  endpoints: # endpoint 信息查看
+    web:
+      exposure:
+        include: '*'
+```
+
+启动服务，访问：`http://localhost:8401/actuator/sentinel`
+
+```json
+{
+    "blockPage": null,
+    "appName": "cloud-alibaba-sentinel-service8401",
+    "consoleServer": "localhost:8080",
+    "coldFactor": "3",
+    "rules": {
+        "systemRules": [],
+        "authorityRule": [],
+        "paramFlowRule": [],
+        "flowRules": [],
+        "degradeRules": []
+    },
+    "metricsFileCharset": "UTF-8",
+    "filter": {
+        "order": -2147483648,
+        "urlPatterns": [
+            "/*"
+        ],
+        "enabled": true
+    },
+    "totalMetricsFileCount": 6,
+    "datasource": {},
+    "clientIp": "192.168.1.106",
+    "clientPort": "8720",
+    "logUsePid": false,
+    "metricsFileSize": 52428800,
+    "logDir": "C:\\Users\\ayiya\\logs\\csp\\",
+    "heartbeatIntervalMs": 10000
+}
+```
+
+
+
+##### 查看实时监控
+
+Sentinel 控制台支持实时监控查看，您可以通过 Sentinel 控制台查看各链路的请求的通过数和被限流数等信息。 其中 `p_qps` 为通过(pass) 流控的 QPS，`b_qps` 为被限流 (block) 的 QPS。
+
+![实时监控图](https://user-images.githubusercontent.com/9434884/55449295-84866d80-55fd-11e9-94e5-d3441f4a2b63.png)
+
+
+
+##### @SentinelResource 注解
+
+官方文档：[注解支持 · alibaba/Sentinel Wiki (github.com)](https://github.com/alibaba/Sentinel/wiki/注解支持)
+
+**@SentinelResource 注解**
+
+> 注意：注解方式埋点不支持 private 方法。
+
+`@SentinelResource` 用于定义资源，并提供可选的异常处理和 fallback 配置项。 `@SentinelResource` 注解包含以下属性：
+
+- `value`：资源名称，必需项（不能为空）
+
+- `entryType`：entry 类型，可选项（默认为 `EntryType.OUT`）
+
+- `blockHandler` / `blockHandlerClass`: `blockHandler` 对应处理 `BlockException` 的函数名称，可选项。blockHandler 函数访问范围需要是 `public`，返回类型需要与原方法相匹配，参数类型需要和原方法相匹配并且最后加一个额外的参数，类型为 `BlockException`。blockHandler 函数默认需要和原方法在同一个类中。若希望使用其他类的函数，则可以指定 `blockHandlerClass` 为对应的类的 `Class` 对象，注意对应的函数必需为 static 函数，否则无法解析。
+
+- `fallback` / `fallbackClass`：fallback 函数名称，可选项，用于在抛出异常的时候提供 fallback 处理逻辑。fallback 函数可以针对所有类型的异常（除了 `exceptionsToIgnore` 里面排除掉的异常类型）进行处理。fallback 函数签名和位置要求：
+  - 返回值类型必须与原函数返回值类型一致；
+  - 方法参数列表需要和原函数一致，或者可以额外多一个 `Throwable` 类型的参数用于接收对应的异常。
+  - fallback 函数默认需要和原方法在同一个类中。若希望使用其他类的函数，则可以指定 `fallbackClass` 为对应的类的 `Class` 对象，注意对应的函数必需为 static 函数，否则无法解析。
+  
+- `defaultFallback`（since 1.6.0）：默认的 fallback 函数名称，可选项，通常用于通用的 fallback 逻辑（即可以用于很多服务或方法）。默认 fallback 函数可以针对所有类型的异常（除了 `exceptionsToIgnore` 里面排除掉的异常类型）进行处理。若同时配置了 fallback 和 defaultFallback，则只有 fallback 会生效。defaultFallback 函数签名要求：
+  - 返回值类型必须与原函数返回值类型一致；
+  - 方法参数列表需要为空，或者可以额外多一个 `Throwable` 类型的参数用于接收对应的异常。
+  - defaultFallback 函数默认需要和原方法在同一个类中。若希望使用其他类的函数，则可以指定 `fallbackClass` 为对应的类的 `Class` 对象，注意对应的函数必需为 static 函数，否则无法解析。
+
+- `exceptionsToIgnore`（since 1.6.0）：用于指定哪些异常被排除掉，不会计入异常统计中，也不会进入 fallback 逻辑中，而是会原样抛出。
+
+1.8.0 版本开始，`defaultFallback` 支持在类级别进行配置。
+
+> 注：1.6.0 之前的版本 fallback 函数只针对降级异常（`DegradeException`）进行处理，**不能针对业务异常进行处理**。
+
+特别地，若 blockHandler 和 fallback 都进行了配置，则被限流降级而抛出 `BlockException` 时只会进入 `blockHandler` 处理逻辑。若未配置 `blockHandler`、`fallback` 和 `defaultFallback`，则被限流降级时会将 `BlockException` **直接抛出**（若方法本身未定义 throws BlockException 则会被 JVM 包装一层 `UndeclaredThrowableException`）。
+
+
+
+总结：
+
+`blockHandler` / `blockHandlerClass`：处理发生降级时的逻辑；
+
+`fallback` / `fallbackClass`：处理发生异常时的逻辑；
+
+`defaultFallback`：处理除`fallback`和`xx`外的逻辑；
+
+`exceptionsToIgnore`：指定哪些异常被排除；
+
+
+
+`blockHandler` / `fallback` / `defaultFallback`都未配置：被限流降级时会将 `BlockException` **直接抛出**（若方法本身未定义 throws BlockException 则会被 JVM 包装一层 `UndeclaredThrowableException`）；
+
+`blockHandler` / `fallback` 配置：则被限流降级而抛出 `BlockException` 时**只会进入** `blockHandler` 处理逻辑。
+
+示例：
+
+```java
+public class TestService {
+
+    // 原函数 注解方式埋点不支持 private 方法
+    @SentinelResource(value = "hello", blockHandler = "exceptionHandler", fallback = "helloFallback")
+    public String hello(long s) {
+        return String.format("Hello at %d", s);
+    }
+    
+    // Fallback 函数，函数签名与原函数一致或加一个 Throwable 类型的参数.
+    public String helloFallback(long s) {
+        return String.format("Halooooo %d", s);
+    }
+
+    // Block 异常处理函数，参数最后多一个 BlockException，其余与原函数一致.
+    public String exceptionHandler(long s, BlockException ex) {
+        // Do some log here.
+        ex.printStackTrace();
+        return "Oops, error occurred at " + s;
+    }
+
+    // 这里单独演示 blockHandlerClass 的配置.
+    // 对应的 `handleException` 函数需要位于 `ExceptionUtil` 类中，并且必须为 public static 函数.
+    @SentinelResource(value = "test", blockHandler = "handleException", blockHandlerClass = {ExceptionUtil.class})
+    public void test() {
+        System.out.println("Test");
+    }
+}
+```
+
+```java
+public final class ExceptionUtil {
+
+    //blockHandler方法必须为 public static 函数（参数最后多一个 BlockException，其余与原函数一致.）
+    public static void handleException(BlockException ex) {
+        System.out.println("Oops: " + ex.getClass().getCanonicalName());
+    }
+}
+
+```
+
+
+
+案例：
+
+修改模块cloud-alibaba-sentinel-service8401
+
+BlockHandlerExceptionUtil类
+
+```java
+package com.hyd.springcloud.controller.exception;
+
+import com.alibaba.csp.sentinel.slots.block.BlockException;
+
+public class BlockHandlerExceptionUtil {
+    public static String handleEx1(Integer id, BlockException ex){
+        return "test3---blockHandlerClass---"+id+"---"+ex.getClass().getCanonicalName();
+    }
+}
+
+```
+
+FallbackExceptionUtil类
+
+```java
+package com.hyd.springcloud.controller.exception;
+
+public class FallbackExceptionUtil {
+    public static String fallbackEx1(Integer id){
+        return "test5---fallbackClass---"+id;
+    };
+}
+
+```
+
+controller层
+
+```java
+package com.hyd.springcloud.controller;
+
+import com.alibaba.csp.sentinel.annotation.SentinelResource;
+import com.alibaba.csp.sentinel.slots.block.BlockException;
+import com.hyd.springcloud.controller.exception.BlockHandlerExceptionUtil;
+import com.hyd.springcloud.controller.exception.FallbackExceptionUtil;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+@Slf4j
+public class SentinelController {
+
+    //测试各种配置情况下，发生限流降级处理逻辑
+
+    //什么都不配置
+    @GetMapping("/t1")
+    public String test1(){
+//        int a=10/0;
+        return "test1---";
+    }
+
+    //配置 blockHandler
+    @GetMapping("/t2/{id}")
+    @SentinelResource(value = "test2",blockHandler = "blockHandler")
+    public String test2(@PathVariable("id") Integer id){
+//        int a=10/0;
+        return "test2---"+id;
+    }
+
+
+    //配置 blockHandlerClass
+    @GetMapping("/t3/{id}")
+    @SentinelResource(value = "test3",blockHandler = "handleEx1",blockHandlerClass = {BlockHandlerExceptionUtil.class})
+    public String test3(@PathVariable("id") Integer id){
+//        int a=10/0;
+        return "test3---"+id;
+    }
+
+    //配置 fallback
+    @GetMapping("/t4/{id}")
+    @SentinelResource(value = "test4",fallback = "fallback")
+    public String test4(@PathVariable("id") Integer id){
+//        int a=10/0;
+        return "test4---"+id;
+    }
+
+    //配置 fallbackClass
+    @GetMapping("/t5/{id}")
+    @SentinelResource(value = "test5",fallback = "fallbackEx1",fallbackClass = {FallbackExceptionUtil.class})
+    public String test5(@PathVariable("id")Integer id){
+//        int a=10/0;
+        return "test5---"+id;
+    }
+
+    //配置 blockHandler 和 fallback
+    @GetMapping("t6/{id}")
+    @SentinelResource(value = "test6",blockHandler = "blockHandler",fallback = "fallback")
+    public String test6(@PathVariable("id")Integer id){
+//        int a=10/0;
+        return "test6---"+id;
+    }
+
+    //blockHandler 方法
+    public String blockHandler(Integer id, BlockException ex){
+        return "blockHandler---"+id+"---"+ex.getClass().getCanonicalName();
+    }
+
+    //fallback 方法
+    public String fallback(Integer id){
+        return "fallback---"+id;
+    }
+}
+```
+
+
+
+**当方法发生降级时**：
+
+什么都不配置；返回默认语句
+
+```
+Blocked by Sentinel (flow limiting)
+```
+
+配置 blockHandler；执行blockHandler对应方法
+
+```
+blockHandler---8---com.alibaba.csp.sentinel.slots.block.flow.FlowException
+```
+
+配置 blockHandlerClass；执行blockHandlerClass对应类中，对应方法
+
+```
+test3---blockHandlerClass---8---com.alibaba.csp.sentinel.slots.block.flow.FlowException
+```
+
+配置 fallback；执行fallback对应方法
+
+```
+fallback---8
+```
+
+配置 fallbackClass；执行fallbackClass对应类中，对应方法
+
+```
+test5---fallbackClass---8
+```
+
+配置 blockHandler 和 fallback；执行blockHandler对应方法
+
+```
+blockHandler---8---com.alibaba.csp.sentinel.slots.block.flow.FlowException
+```
+
+**当方法发生业务异常时**：
+
+配置 blockHandler；抛出异常（若此时触发降级，则执行blockHandler对应方法）
+
+```
+{
+    "timestamp": "2021-06-01T11:50:36.123+0000",
+    "status": 500,
+    "error": "Internal Server Error",
+    "message": "/ by zero",
+    "path": "/t2/1"
+}
+```
+
+```
+blockHandler---1---com.alibaba.csp.sentinel.slots.block.flow.FlowException
+```
+
+配置 fallback；执行fallback对应方法
+
+```
+fallback---1
+```
+
+配置 blockHandler 和 fallback；执行fallback对应方法（若此时触发降级，则执行blockHandler对应方法）
+
+```
+fallback---1
+```
+
+```
+blockHandler---1---com.alibaba.csp.sentinel.slots.block.flow.FlowException
+```
+
+
+
+##### 动态规则
+
+`DataSource` 扩展常见的实现方式有:
+
+- **拉模式**：客户端主动向某个规则管理中心定期轮询拉取规则，这个规则中心可以是 RDBMS、文件，甚至是 VCS 等。这样做的方式是简单，缺点是无法及时获取变更；
+- **推模式**：规则中心统一推送，客户端通过注册监听器的方式时刻监听变化，比如使用 [Nacos](https://github.com/alibaba/nacos)、Zookeeper 等配置中心。这种方式有更好的实时性和一致性保证。
+
+![datasource扩展](https://user-images.githubusercontent.com/9434884/45406233-645e8380-b698-11e8-8199-0c917403238f.png)
+
+Sentinel 目前支持以下数据源扩展：
+
+- Pull-based: 动态文件数据源、[Consul](https://github.com/alibaba/Sentinel/tree/master/sentinel-extension/sentinel-datasource-consul), [Eureka](https://github.com/alibaba/Sentinel/tree/master/sentinel-extension/sentinel-datasource-eureka)
+- Push-based: [ZooKeeper](https://github.com/alibaba/Sentinel/tree/master/sentinel-extension/sentinel-datasource-zookeeper), [Redis](https://github.com/alibaba/Sentinel/tree/master/sentinel-extension/sentinel-datasource-redis), [Nacos](https://github.com/alibaba/Sentinel/tree/master/sentinel-extension/sentinel-datasource-nacos), [Apollo](https://github.com/alibaba/Sentinel/tree/master/sentinel-extension/sentinel-datasource-apollo), [etcd](https://github.com/alibaba/Sentinel/tree/master/sentinel-extension/sentinel-datasource-etcd)
+
+###### 使用 Nacos 作为规则配置数据源
+
+引入nacos依赖，以及sentinel适配nacos数据源依赖
+
+pom.xml
+
+```xml
+```
+
+nacos新建配置：
+
+```
+dataId:cloud-alibaba-sentinel-service8401-sentinel-rules
+group:DEFAULT_GROUP
+配置格式：json
+```
+
+配置内容：
+
+```json
+[{
+    "resource": "/t1",
+    "IimitApp": "default",
+    "grade": 1,
+    "count": 1, 
+    "strategy": 0,
+    "controlBehavior": 0,
+    "clusterMode": false
+}]
+```
+
+application.yaml配置
+
+```yaml
+server:
+  port: 8401
+spring:
+  application:
+    name: cloud-alibaba-sentinel-service8401
+  cloud:
+    sentinel:
+      transport:
+        port: 8719 # 一个http server与sentinel控制台交互端口
+        dashboard: localhost:8080 # sentinel控制台地址
+      datasource:
+        ds1: # 随便起名
+          nacos:
+            server-addr: localhost:8848
+            dataId: cloud-alibaba-sentinel-service8401-sentinel-rules # 绑定nacos规则配置
+            groupId: DEFAULT_GROUP
+            data-type: json # 配置类型json
+            rule-type: flow # 流量控制规则
+```
+
+启动类及controller层代码略
+
+启动nacos控制台，sentinel控制台
+
+```shell
+startup.cmd -m standalone
+```
+
+```shell
+java -jar sentinel-dashboard-1.7.1.jar
+```
+
+启动服务，调用url接口，查看sentinel控制台，出现流控规则，成功。
+
+
+
+可以配置application.yaml配置字段及nacos配置内容，格式如下：
+
+```yaml
+spring:
+  cloud:
+    sentinel:
+      datasource:
+        ds1: # 随便起名
+          nacos:
+            server-addr: localhost:8848
+            dataId: cloud-alibaba-sentinel-service8401-sentinel-rules
+            groupId: DEFAULT_GROUP
+            data-type: json
+            rule-type: flow
+```
+
+nacos flow流控规则配置如下：
+
+```json
+[
+	{
+		"resource": "/t1",//资源名
+		"IimitApp": "default",//来源应用
+		"grade": 1,//阈值类型；0：线程数，1：QPS
+		"count": 1,//单机阈值
+		"strategy": 0,//流控模式；0：快速失败，1：Warm Up，2：排队等待
+		"controlBehavior": 0,//流控效果
+		"clusterMode": false//是否集群
+	}
+]
+```
+
+官方流控规则demo：[Sentinel/NacosConfigSender.java at master · alibaba/Sentinel (github.com)](https://github.com/alibaba/Sentinel/blob/master/sentinel-demo/sentinel-demo-nacos-datasource/src/main/java/com/alibaba/csp/sentinel/demo/datasource/nacos/NacosConfigSender.java)
+
+
+
+[动态规则扩展 · alibaba/Sentinel Wiki (github.com)](https://github.com/alibaba/Sentinel/wiki/动态规则扩展)
+
+
+
+###### 相关源码
+
+SentinelProperties配置类：`spring.cloud.sentinel`
+
+```java
+public static final String PROPERTY_PREFIX = "spring.cloud.sentinel";
+```
+
+SentinelProperties配置类源码：
+
+```java
+/*
+ * Copyright 2013-2018 the original author or authors.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.alibaba.cloud.sentinel;
+
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
+
+import com.alibaba.cloud.sentinel.datasource.config.DataSourcePropertiesConfiguration;
+import com.alibaba.csp.sentinel.config.SentinelConfig;
+import com.alibaba.csp.sentinel.log.LogBase;
+import com.alibaba.csp.sentinel.transport.config.TransportConfig;
+
+import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.DeprecatedConfigurationProperty;
+import org.springframework.core.Ordered;
+import org.springframework.util.StringUtils;
+import org.springframework.validation.annotation.Validated;
+
+/**
+ * {@link ConfigurationProperties} for Sentinel.
+ *
+ * @author xiaojing
+ * @author hengyunabc
+ * @author jiashuai.xie
+ * @author <a href="mailto:fangjian0423@gmail.com">Jim</a>
+ */
+@ConfigurationProperties(prefix = SentinelConstants.PROPERTY_PREFIX)
+@Validated
+public class SentinelProperties {
+
+	/**
+	 * Earlier initialize heart-beat when the spring container starts when the transport
+	 * dependency is on classpath, the configuration is effective.
+	 */
+	private boolean eager = false;
+
+	/**
+	 * Enable sentinel auto configure, the default value is true.
+	 */
+	private boolean enabled = true;
+
+	/**
+	 * The process page when the flow control is triggered.
+	 */
+	private String blockPage;
+
+	/**
+	 * Configurations about datasource, like 'nacos', 'apollo', 'file', 'zookeeper'.
+	 */
+	private Map<String, DataSourcePropertiesConfiguration> datasource = new TreeMap<>(
+			String.CASE_INSENSITIVE_ORDER);
+
+	/**
+	 * Transport configuration about dashboard and client.
+	 */
+	private Transport transport = new Transport();
+
+	/**
+	 * Metric configuration about resource.
+	 */
+	private Metric metric = new Metric();
+
+	/**
+	 * Web servlet configuration when the application is web, the configuration is
+	 * effective.
+	 */
+	private Servlet servlet = new Servlet();
+
+	/**
+	 * Sentinel interceptor when the application is web, the configuration is effective.
+	 */
+	private Filter filter = new Filter();
+
+	/**
+	 * Sentinel Flow configuration.
+	 */
+	private Flow flow = new Flow();
+
+	/**
+	 * Sentinel log configuration {@link LogBase}.
+	 */
+	private Log log = new Log();
+
+	/**
+	 * Add HTTP method prefix for Sentinel Resource.
+	 */
+	private Boolean httpMethodSpecify = false;
+
+	public boolean isEager() {
+		return eager;
+	}
+
+	public void setEager(boolean eager) {
+		this.eager = eager;
+	}
+
+	public Flow getFlow() {
+		return flow;
+	}
+
+	public void setFlow(Flow flow) {
+		this.flow = flow;
+	}
+
+	public Transport getTransport() {
+		return transport;
+	}
+
+	public void setTransport(Transport transport) {
+		this.transport = transport;
+	}
+
+	public Metric getMetric() {
+		return metric;
+	}
+
+	public void setMetric(Metric metric) {
+		this.metric = metric;
+	}
+
+	public Servlet getServlet() {
+		return servlet;
+	}
+
+	public void setServlet(Servlet servlet) {
+		this.servlet = servlet;
+	}
+
+	public boolean isEnabled() {
+		return enabled;
+	}
+
+	public void setEnabled(boolean enabled) {
+		this.enabled = enabled;
+	}
+
+	public Filter getFilter() {
+		return filter;
+	}
+
+	public void setFilter(Filter filter) {
+		this.filter = filter;
+	}
+
+	public Map<String, DataSourcePropertiesConfiguration> getDatasource() {
+		return datasource;
+	}
+
+	public void setDatasource(Map<String, DataSourcePropertiesConfiguration> datasource) {
+		this.datasource = datasource;
+	}
+
+	public Log getLog() {
+		return log;
+	}
+
+	public void setLog(Log log) {
+		this.log = log;
+	}
+
+	public Boolean getHttpMethodSpecify() {
+		return httpMethodSpecify;
+	}
+
+	public void setHttpMethodSpecify(Boolean httpMethodSpecify) {
+		this.httpMethodSpecify = httpMethodSpecify;
+	}
+
+	public String getBlockPage() {
+		if (StringUtils.hasText(this.blockPage)) {
+			return this.blockPage;
+		}
+		return this.servlet.getBlockPage();
+	}
+
+	public void setBlockPage(String blockPage) {
+		this.blockPage = blockPage;
+	}
+
+	public static class Flow {
+
+		/**
+		 * The cold factor {@link SentinelConfig#COLD_FACTOR}.
+		 */
+		private String coldFactor = SentinelConstants.COLD_FACTOR;
+
+		public String getColdFactor() {
+			return coldFactor;
+		}
+
+		public void setColdFactor(String coldFactor) {
+			this.coldFactor = coldFactor;
+		}
+
+	}
+
+	public static class Servlet {
+
+		/**
+		 * The process page when the flow control is triggered.
+		 */
+		private String blockPage;
+
+		@Deprecated
+		@DeprecatedConfigurationProperty(
+				reason = "replaced to SentinelProperties#blockPage.",
+				replacement = SentinelConstants.PROPERTY_PREFIX + ".block-page")
+		public String getBlockPage() {
+			return blockPage;
+		}
+
+		@Deprecated
+		public void setBlockPage(String blockPage) {
+			this.blockPage = blockPage;
+		}
+
+	}
+
+	public static class Metric {
+
+		/**
+		 * The metric file size {@link SentinelConfig#SINGLE_METRIC_FILE_SIZE}.
+		 */
+		private String fileSingleSize;
+
+		/**
+		 * The total metric file count {@link SentinelConfig#TOTAL_METRIC_FILE_COUNT}.
+		 */
+		private String fileTotalCount;
+
+		/**
+		 * Charset when sentinel write or search metric file.
+		 * {@link SentinelConfig#CHARSET}
+		 */
+		private String charset = SentinelConstants.CHARSET;
+
+		public String getFileSingleSize() {
+			return fileSingleSize;
+		}
+
+		public void setFileSingleSize(String fileSingleSize) {
+			this.fileSingleSize = fileSingleSize;
+		}
+
+		public String getFileTotalCount() {
+			return fileTotalCount;
+		}
+
+		public void setFileTotalCount(String fileTotalCount) {
+			this.fileTotalCount = fileTotalCount;
+		}
+
+		public String getCharset() {
+			return charset;
+		}
+
+		public void setCharset(String charset) {
+			this.charset = charset;
+		}
+
+	}
+
+	public static class Transport {
+
+		/**
+		 * Sentinel api port, default value is 8719 {@link TransportConfig#SERVER_PORT}.
+		 */
+		private String port = SentinelConstants.API_PORT;
+
+		/**
+		 * Sentinel dashboard address, won't try to connect dashboard when address is
+		 * empty {@link TransportConfig#CONSOLE_SERVER}.
+		 */
+		private String dashboard = "";
+
+		/**
+		 * Send heartbeat interval millisecond
+		 * {@link TransportConfig#HEARTBEAT_INTERVAL_MS}.
+		 */
+		private String heartbeatIntervalMs;
+
+		/**
+		 * Get heartbeat client local ip. If the client ip not configured, it will be the
+		 * address of local host.
+		 */
+		private String clientIp;
+
+		public String getHeartbeatIntervalMs() {
+			return heartbeatIntervalMs;
+		}
+
+		public void setHeartbeatIntervalMs(String heartbeatIntervalMs) {
+			this.heartbeatIntervalMs = heartbeatIntervalMs;
+		}
+
+		public String getPort() {
+			return port;
+		}
+
+		public void setPort(String port) {
+			this.port = port;
+		}
+
+		public String getDashboard() {
+			return dashboard;
+		}
+
+		public void setDashboard(String dashboard) {
+			this.dashboard = dashboard;
+		}
+
+		public String getClientIp() {
+			return clientIp;
+		}
+
+		public void setClientIp(String clientIp) {
+			this.clientIp = clientIp;
+		}
+
+	}
+
+	public static class Filter {
+
+		/**
+		 * SentinelWebInterceptor order, will be register to InterceptorRegistry.
+		 */
+		private int order = Ordered.HIGHEST_PRECEDENCE;
+
+		/**
+		 * URL pattern for SentinelWebInterceptor, default is /*.
+		 */
+		private List<String> urlPatterns = Arrays.asList("/*");
+
+		/**
+		 * Enable to instance
+		 * {@link com.alibaba.csp.sentinel.adapter.spring.webmvc.SentinelWebInterceptor}.
+		 */
+		private boolean enabled = true;
+
+		public int getOrder() {
+			return this.order;
+		}
+
+		public void setOrder(int order) {
+			this.order = order;
+		}
+
+		public List<String> getUrlPatterns() {
+			return urlPatterns;
+		}
+
+		public void setUrlPatterns(List<String> urlPatterns) {
+			this.urlPatterns = urlPatterns;
+		}
+
+		public boolean isEnabled() {
+			return enabled;
+		}
+
+		public void setEnabled(boolean enabled) {
+			this.enabled = enabled;
+		}
+
+	}
+
+	public static class Log {
+
+		/**
+		 * Sentinel log base dir.
+		 */
+		private String dir;
+
+		/**
+		 * Distinguish the log file by pid number.
+		 */
+		private boolean switchPid = false;
+
+		public String getDir() {
+			return dir;
+		}
+
+		public void setDir(String dir) {
+			this.dir = dir;
+		}
+
+		public boolean isSwitchPid() {
+			return switchPid;
+		}
+
+		public void setSwitchPid(boolean switchPid) {
+			this.switchPid = switchPid;
+		}
+
+	}
+
+}
+```
+
+
+
+SentinelProperties配置类中有`dashboard`字段：
+
+```java
+/**
+	 * Configurations about datasource, like 'nacos', 'apollo', 'file', 'zookeeper'.
+	 */
+private Map<String, DataSourcePropertiesConfiguration> datasource = new TreeMap<>(
+    String.CASE_INSENSITIVE_ORDER);
+```
+
+`datasource`是Map类型，配置application.yaml要注意。
+
+该Map类型有以下字段配置：
+
+```java
+private FileDataSourceProperties file;
+
+private NacosDataSourceProperties nacos;
+
+private ZookeeperDataSourceProperties zk;
+
+private ApolloDataSourceProperties apollo;
+
+private RedisDataSourceProperties redis;
+```
+
+DataSourcePropertiesConfiguration源码：
+
+```java
+/*
+ * Copyright 2013-2018 the original author or authors.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.alibaba.cloud.sentinel.datasource.config;
+
+import java.util.Arrays;
+import java.util.List;
+import java.util.Objects;
+import java.util.stream.Collectors;
+
+import com.fasterxml.jackson.annotation.JsonIgnore;
+
+import org.springframework.util.ObjectUtils;
+
+/**
+ * Using By ConfigurationProperties.
+ *
+ * @author <a href="mailto:fangjian0423@gmail.com">Jim</a>
+ * @see NacosDataSourceProperties
+ * @see ApolloDataSourceProperties
+ * @see ZookeeperDataSourceProperties
+ * @see FileDataSourceProperties
+ * @see RedisDataSourceProperties
+ */
+public class DataSourcePropertiesConfiguration {
+
+	private FileDataSourceProperties file;
+
+	private NacosDataSourceProperties nacos;
+
+	private ZookeeperDataSourceProperties zk;
+
+	private ApolloDataSourceProperties apollo;
+
+	private RedisDataSourceProperties redis;
+
+	public DataSourcePropertiesConfiguration() {
+	}
+
+	public DataSourcePropertiesConfiguration(FileDataSourceProperties file) {
+		this.file = file;
+	}
+
+	public DataSourcePropertiesConfiguration(NacosDataSourceProperties nacos) {
+		this.nacos = nacos;
+	}
+
+	public DataSourcePropertiesConfiguration(ZookeeperDataSourceProperties zk) {
+		this.zk = zk;
+	}
+
+	public DataSourcePropertiesConfiguration(ApolloDataSourceProperties apollo) {
+		this.apollo = apollo;
+	}
+
+	public DataSourcePropertiesConfiguration(RedisDataSourceProperties redis) {
+		this.redis = redis;
+	}
+
+	public FileDataSourceProperties getFile() {
+		return file;
+	}
+
+	public void setFile(FileDataSourceProperties file) {
+		this.file = file;
+	}
+
+	public NacosDataSourceProperties getNacos() {
+		return nacos;
+	}
+
+	public void setNacos(NacosDataSourceProperties nacos) {
+		this.nacos = nacos;
+	}
+
+	public ZookeeperDataSourceProperties getZk() {
+		return zk;
+	}
+
+	public void setZk(ZookeeperDataSourceProperties zk) {
+		this.zk = zk;
+	}
+
+	public ApolloDataSourceProperties getApollo() {
+		return apollo;
+	}
+
+	public void setApollo(ApolloDataSourceProperties apollo) {
+		this.apollo = apollo;
+	}
+
+	public RedisDataSourceProperties getRedis() {
+		return redis;
+	}
+
+	public void setRedis(RedisDataSourceProperties redis) {
+		this.redis = redis;
+	}
+
+	@JsonIgnore
+	public List<String> getValidField() {
+		return Arrays.stream(this.getClass().getDeclaredFields()).map(field -> {
+			try {
+				if (!ObjectUtils.isEmpty(field.get(this))) {
+					return field.getName();
+				}
+				return null;
+			}
+			catch (IllegalAccessException e) {
+				// won't happen
+			}
+			return null;
+		}).filter(Objects::nonNull).collect(Collectors.toList());
+	}
+
+	@JsonIgnore
+	public AbstractDataSourceProperties getValidDataSourceProperties() {
+		List<String> invalidFields = getValidField();
+		if (invalidFields.size() == 1) {
+			try {
+				this.getClass().getDeclaredField(invalidFields.get(0))
+						.setAccessible(true);
+				return (AbstractDataSourceProperties) this.getClass()
+						.getDeclaredField(invalidFields.get(0)).get(this);
+			}
+			catch (IllegalAccessException e) {
+				// won't happen
+			}
+			catch (NoSuchFieldException e) {
+				// won't happen
+			}
+		}
+		return null;
+	}
+
+}
+```
+
+
+
+我们本次以nacos为数据源进行配置。
+
+以nacos作为数据源的配置参数类源码：
+
+```java
+/*
+ * Copyright 2013-2018 the original author or authors.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.alibaba.cloud.sentinel.datasource.config;
+
+import javax.validation.constraints.NotEmpty;
+
+import com.alibaba.cloud.sentinel.datasource.factorybean.NacosDataSourceFactoryBean;
+
+import org.springframework.util.StringUtils;
+
+/**
+ * Nacos Properties class Using by {@link DataSourcePropertiesConfiguration} and
+ * {@link NacosDataSourceFactoryBean}.
+ *
+ * @author <a href="mailto:fangjian0423@gmail.com">Jim</a>
+ */
+public class NacosDataSourceProperties extends AbstractDataSourceProperties {
+
+	private String serverAddr;
+
+	@NotEmpty
+	private String groupId = "DEFAULT_GROUP";
+
+	@NotEmpty
+	private String dataId;
+
+	private String endpoint;
+
+	private String namespace;
+
+	private String accessKey;
+
+	private String secretKey;
+
+	public NacosDataSourceProperties() {
+		super(NacosDataSourceFactoryBean.class.getName());
+	}
+
+	@Override
+	public void preCheck(String dataSourceName) {
+		if (StringUtils.isEmpty(serverAddr)) {
+			serverAddr = this.getEnv().getProperty(
+					"spring.cloud.sentinel.datasource.nacos.server-addr",
+					"localhost:8848");
+		}
+	}
+
+	public String getServerAddr() {
+		return serverAddr;
+	}
+
+	public void setServerAddr(String serverAddr) {
+		this.serverAddr = serverAddr;
+	}
+
+	public String getGroupId() {
+		return groupId;
+	}
+
+	public void setGroupId(String groupId) {
+		this.groupId = groupId;
+	}
+
+	public String getDataId() {
+		return dataId;
+	}
+
+	public void setDataId(String dataId) {
+		this.dataId = dataId;
+	}
+
+	public String getEndpoint() {
+		return endpoint;
+	}
+
+	public void setEndpoint(String endpoint) {
+		this.endpoint = endpoint;
+	}
+
+	public String getNamespace() {
+		return namespace;
+	}
+
+	public void setNamespace(String namespace) {
+		this.namespace = namespace;
+	}
+
+	public String getAccessKey() {
+		return accessKey;
+	}
+
+	public void setAccessKey(String accessKey) {
+		this.accessKey = accessKey;
+	}
+
+	public String getSecretKey() {
+		return secretKey;
+	}
+
+	public void setSecretKey(String secretKey) {
+		this.secretKey = secretKey;
+	}
+
+}
+```
+
+`NacosDataSourceProperties` 继承于  `AbstractDataSourceProperties`。
+
+`NacosDataSourceProperties`本类加上继承自父类的字段，再去除`@JsonIgnore`注解标记的字段，一共有以下配置字段：
+
+```java
+/** 继承自父类的字段 **/
+@NotEmpty
+private String dataType = "json";
+
+@NotNull
+private RuleType ruleType;
+
+private String converterClass;
+
+/** 本类中的字段 **/
+private String serverAddr;
+
+@NotEmpty
+private String groupId = "DEFAULT_GROUP";
+
+@NotEmpty
+private String dataId;
+
+private String endpoint;
+
+private String namespace;
+
+private String accessKey;
+
+private String secretKey;
+```
+
+
+
+数据源的规则类型：
+
+`ruleType`有以下类型：
+
+```
+flow;//流量控制规则；
+degrade;//熔断降级规则；
+param-flow;//热点规则；
+system;//系统保护规则；
+authority;//访问控制规则；
+
+//gateway引入sentinel路由和api分组
+gw-flow;
+gw-api-group;
+```
+
+RuleType源码：
+
+```java
+/*
+ * Copyright 2013-2018 the original author or authors.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.alibaba.cloud.sentinel.datasource;
+
+import java.util.Arrays;
+import java.util.Optional;
+
+import com.alibaba.cloud.sentinel.datasource.config.AbstractDataSourceProperties;
+import com.alibaba.csp.sentinel.slots.block.AbstractRule;
+import com.alibaba.csp.sentinel.slots.block.authority.AuthorityRule;
+import com.alibaba.csp.sentinel.slots.block.degrade.DegradeRule;
+import com.alibaba.csp.sentinel.slots.block.flow.FlowRule;
+import com.alibaba.csp.sentinel.slots.block.flow.param.ParamFlowRule;
+import com.alibaba.csp.sentinel.slots.system.SystemRule;
+
+import org.springframework.util.StringUtils;
+
+/**
+ * Enum for {@link AbstractRule} class, using in
+ * {@link AbstractDataSourceProperties#ruleType}.
+ *
+ * @author <a href="mailto:fangjian0423@gmail.com">Jim</a>
+ */
+public enum RuleType {
+
+	/**
+	 * flow.
+	 */
+	FLOW("flow", FlowRule.class),
+	/**
+	 * degrade.
+	 */
+	DEGRADE("degrade", DegradeRule.class),
+	/**
+	 * param flow.
+	 */
+	PARAM_FLOW("param-flow", ParamFlowRule.class),
+	/**
+	 * system.
+	 */
+	SYSTEM("system", SystemRule.class),
+	/**
+	 * authority.
+	 */
+	AUTHORITY("authority", AuthorityRule.class),
+	/**
+	 * gateway flow.
+	 */
+	GW_FLOW("gw-flow",
+			"com.alibaba.csp.sentinel.adapter.gateway.common.rule.GatewayFlowRule"),
+	/**
+	 * api.
+	 */
+	GW_API_GROUP("gw-api-group",
+			"com.alibaba.csp.sentinel.adapter.gateway.common.api.ApiDefinition");
+
+	/**
+	 * alias for {@link AbstractRule}.
+	 */
+	private final String name;
+
+	/**
+	 * concrete {@link AbstractRule} class.
+	 */
+	private Class clazz;
+
+	/**
+	 * concrete {@link AbstractRule} class name.
+	 */
+	private String clazzName;
+
+	RuleType(String name, Class clazz) {
+		this.name = name;
+		this.clazz = clazz;
+	}
+
+	RuleType(String name, String clazzName) {
+		this.name = name;
+		this.clazzName = clazzName;
+	}
+
+	public String getName() {
+		return name;
+	}
+
+	public Class getClazz() {
+		if (clazz != null) {
+			return clazz;
+		}
+		else {
+			try {
+				return Class.forName(clazzName);
+			}
+			catch (ClassNotFoundException e) {
+				throw new RuntimeException(e);
+			}
+		}
+	}
+
+	public static Optional<RuleType> getByName(String name) {
+		if (StringUtils.isEmpty(name)) {
+			return Optional.empty();
+		}
+		return Arrays.stream(RuleType.values())
+				.filter(ruleType -> name.equals(ruleType.getName())).findFirst();
+	}
+
+	public static Optional<RuleType> getByClass(Class clazz) {
+		return Arrays.stream(RuleType.values())
+				.filter(ruleType -> clazz == ruleType.getClazz()).findFirst();
+	}
+
+}
+```
+
+流量控制规则源码：
+
+```java
+/*
+ * Copyright 1999-2018 Alibaba Group Holding Ltd.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.alibaba.csp.sentinel.slots.block.flow;
+
+import com.alibaba.csp.sentinel.context.Context;
+import com.alibaba.csp.sentinel.node.DefaultNode;
+import com.alibaba.csp.sentinel.slots.block.AbstractRule;
+import com.alibaba.csp.sentinel.slots.block.RuleConstant;
+
+/**
+ * <p>
+ * Each flow rule is mainly composed of three factors: <strong>grade</strong>,
+ * <strong>strategy</strong> and <strong>controlBehavior</strong>:
+ * </p>
+ * <ul>
+ *     <li>The {@link #grade} represents the threshold type of flow control (by QPS or thread count).</li>
+ *     <li>The {@link #strategy} represents the strategy based on invocation relation.</li>
+ *     <li>The {@link #controlBehavior} represents the QPS shaping behavior (actions on incoming request when QPS
+ *     exceeds the threshold).</li>
+ * </ul>
+ *
+ * @author jialiang.linjl
+ * @author Eric Zhao
+ */
+public class FlowRule extends AbstractRule {
+
+    public FlowRule() {
+        super();
+        setLimitApp(RuleConstant.LIMIT_APP_DEFAULT);
+    }
+
+    public FlowRule(String resourceName) {
+        super();
+        setResource(resourceName);
+        setLimitApp(RuleConstant.LIMIT_APP_DEFAULT);
+    }
+
+    /**
+     * The threshold type of flow control (0: thread count, 1: QPS).
+     */
+    private int grade = RuleConstant.FLOW_GRADE_QPS;
+
+    /**
+     * Flow control threshold count.
+     */
+    private double count;
+
+    /**
+     * Flow control strategy based on invocation chain.
+     *
+     * {@link RuleConstant#STRATEGY_DIRECT} for direct flow control (by origin);
+     * {@link RuleConstant#STRATEGY_RELATE} for relevant flow control (with relevant resource);
+     * {@link RuleConstant#STRATEGY_CHAIN} for chain flow control (by entrance resource).
+     */
+    private int strategy = RuleConstant.STRATEGY_DIRECT;
+
+    /**
+     * Reference resource in flow control with relevant resource or context.
+     */
+    private String refResource;
+
+    /**
+     * Rate limiter control behavior.
+     * 0. default(reject directly), 1. warm up, 2. rate limiter, 3. warm up + rate limiter
+     */
+    private int controlBehavior = RuleConstant.CONTROL_BEHAVIOR_DEFAULT;
+
+    private int warmUpPeriodSec = 10;
+
+    /**
+     * Max queueing time in rate limiter behavior.
+     */
+    private int maxQueueingTimeMs = 500;
+
+    private boolean clusterMode;
+    /**
+     * Flow rule config for cluster mode.
+     */
+    private ClusterFlowConfig clusterConfig;
+
+    /**
+     * The traffic shaping (throttling) controller.
+     */
+    private TrafficShapingController controller;
+
+    public int getControlBehavior() {
+        return controlBehavior;
+    }
+
+    public FlowRule setControlBehavior(int controlBehavior) {
+        this.controlBehavior = controlBehavior;
+        return this;
+    }
+
+    public int getMaxQueueingTimeMs() {
+        return maxQueueingTimeMs;
+    }
+
+    public FlowRule setMaxQueueingTimeMs(int maxQueueingTimeMs) {
+        this.maxQueueingTimeMs = maxQueueingTimeMs;
+        return this;
+    }
+
+    FlowRule setRater(TrafficShapingController rater) {
+        this.controller = rater;
+        return this;
+    }
+
+    TrafficShapingController getRater() {
+        return controller;
+    }
+
+    public int getWarmUpPeriodSec() {
+        return warmUpPeriodSec;
+    }
+
+    public FlowRule setWarmUpPeriodSec(int warmUpPeriodSec) {
+        this.warmUpPeriodSec = warmUpPeriodSec;
+        return this;
+    }
+
+    public int getGrade() {
+        return grade;
+    }
+
+    public FlowRule setGrade(int grade) {
+        this.grade = grade;
+        return this;
+    }
+
+    public double getCount() {
+        return count;
+    }
+
+    public FlowRule setCount(double count) {
+        this.count = count;
+        return this;
+    }
+
+    public int getStrategy() {
+        return strategy;
+    }
+
+    public FlowRule setStrategy(int strategy) {
+        this.strategy = strategy;
+        return this;
+    }
+
+    public String getRefResource() {
+        return refResource;
+    }
+
+    public FlowRule setRefResource(String refResource) {
+        this.refResource = refResource;
+        return this;
+    }
+
+    public boolean isClusterMode() {
+        return clusterMode;
+    }
+
+    public FlowRule setClusterMode(boolean clusterMode) {
+        this.clusterMode = clusterMode;
+        return this;
+    }
+
+    public ClusterFlowConfig getClusterConfig() {
+        return clusterConfig;
+    }
+
+    public FlowRule setClusterConfig(ClusterFlowConfig clusterConfig) {
+        this.clusterConfig = clusterConfig;
+        return this;
+    }
+
+    @Override
+    public boolean passCheck(Context context, DefaultNode node, int acquireCount, Object... args) {
+        return true;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) { return true; }
+        if (o == null || getClass() != o.getClass()) { return false; }
+        if (!super.equals(o)) { return false; }
+
+        FlowRule rule = (FlowRule)o;
+
+        if (grade != rule.grade) { return false; }
+        if (Double.compare(rule.count, count) != 0) { return false; }
+        if (strategy != rule.strategy) { return false; }
+        if (controlBehavior != rule.controlBehavior) { return false; }
+        if (warmUpPeriodSec != rule.warmUpPeriodSec) { return false; }
+        if (maxQueueingTimeMs != rule.maxQueueingTimeMs) { return false; }
+        if (clusterMode != rule.clusterMode) { return false; }
+        if (refResource != null ? !refResource.equals(rule.refResource) : rule.refResource != null) { return false; }
+        return clusterConfig != null ? clusterConfig.equals(rule.clusterConfig) : rule.clusterConfig == null;
+    }
+
+    @Override
+    public int hashCode() {
+        int result = super.hashCode();
+        long temp;
+        result = 31 * result + grade;
+        temp = Double.doubleToLongBits(count);
+        result = 31 * result + (int)(temp ^ (temp >>> 32));
+        result = 31 * result + strategy;
+        result = 31 * result + (refResource != null ? refResource.hashCode() : 0);
+        result = 31 * result + controlBehavior;
+        result = 31 * result + warmUpPeriodSec;
+        result = 31 * result + maxQueueingTimeMs;
+        result = 31 * result + (clusterMode ? 1 : 0);
+        result = 31 * result + (clusterConfig != null ? clusterConfig.hashCode() : 0);
+        return result;
+    }
+
+    @Override
+    public String toString() {
+        return "FlowRule{" +
+            "resource=" + getResource() +
+            ", limitApp=" + getLimitApp() +
+            ", grade=" + grade +
+            ", count=" + count +
+            ", strategy=" + strategy +
+            ", refResource=" + refResource +
+            ", controlBehavior=" + controlBehavior +
+            ", warmUpPeriodSec=" + warmUpPeriodSec +
+            ", maxQueueingTimeMs=" + maxQueueingTimeMs +
+            ", clusterMode=" + clusterMode +
+            ", clusterConfig=" + clusterConfig +
+            ", controller=" + controller +
+            '}';
+    }
+}
+
+```
+
+
+
+##### 熔断框架比较
+
+|                | Sentinel                                                   | Hystrix                | resilience4j                     |
+| -------------- | ---------------------------------------------------------- | ---------------------- | -------------------------------- |
+| 隔离策略       | 信号量隔离（并发线程数限流）                               | 线程池隔商/信号量隔离  | 信号量隔离                       |
+| 熔断降级策略   | 基于响应时间、异常比率、异常数                             | 线程池隔商/信号量隔离  | 基于异常比率、响应时间           |
+| 实时统计实现   | 滑动窗口（LeapArray）                                      | 滑动窗口（基于RxJava） | Ring Bit Buffer                  |
+| 动态规则配置   | 支持多种数据源                                             | 支持多种数据源         | 有限支持                         |
+| 扩展性         | 多个扩展点                                                 | 插件的形式             | 接口的形式                       |
+| 基于注解的支持 | 支持                                                       | 支持                   | 支持                             |
+| 限流           | 基于QPS，支持基于调用关系的限流                            | 有限的支持             | Rate Limiter                     |
+| 流量整形       | 支持预热模式匀速器模式、预热排队模式                       | 不支持                 | 简单的Rate Limiter模式           |
+| 系统自适应保护 | 支持                                                       | 不支持                 | 不支持                           |
+| 控制台         | 提供开箱即用的控制台，可配置规则、查看秒级监控，机器发观等 | 简单的监控查看         | 不提供控制台，可对接其它监控系统 |
+
+
+
 ---
 
 
 
-### Spring Cloud Alibaba Nacos 处理分布式事务
+### Spring Cloud Alibaba Seata 处理分布式事务
 
-//todo
+#### 概述
+
+##### Seata 是什么
+
+Seata 是一款开源的分布式事务解决方案，致力于提供高性能和简单易用的分布式事务服务。Seata 将为用户提供了 AT、TCC、SAGA 和 XA 事务模式，为用户打造一站式的分布式解决方案。
 
 
 

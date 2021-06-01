@@ -50,6 +50,7 @@
         <module>cloud-alibaba-consumer-nacos-order80</module>
         <module>cloud-alibaba-nacos-config-client3358</module>
         <module>cloud-alibaba-nacos-config-cluster-client3358</module>
+        <module>cloud-alibaba-sentinel-service8401</module>
     </modules>
 
     <!--统一管理jar包和版本-->

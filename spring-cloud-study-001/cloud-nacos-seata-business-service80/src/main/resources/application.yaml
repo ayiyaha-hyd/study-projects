@@ -1,0 +1,47 @@
+server:
+  port: 80
+spring:
+  application:
+    name: business-service
+  cloud:
+    nacos:
+      discovery:
+        server-addr: localhost:8848
+#    alibaba:
+#      seata:
+#        # (order,storage,account)事务组名称，与seata配置文件中vgroup_mapping.business_group值一致
+#        tx-service-group: business_group
+  main:
+    allow-bean-definition-overriding: true #允许存在多个Feign调用相同Service的接口
+
+# 使用yaml配置 seata conf配置文件 -----start----|
+seata:
+  client:
+    support:
+      spring:
+        datasource-autoproxy: true # 数据源自动代理 默认 true
+  registry:
+    nacos:
+      server-addr: localhost:8848
+      namespace: ""
+      cluster: default
+  tx-service-group: business_group
+  service:
+    vgroup-mapping: default
+    grouplist: 127.0.0.1:8091
+    enable-degrade: false
+#    disable-global-transaction: false # 默认 false，目前版本该配置yaml不生效(bug)
+# 使用yaml配置 seata conf配置文件 -----end-----|
+
+feign:
+  client:
+    config:
+      - default:
+          connectTimeout: 10000
+          readTimeout: 60000
+
+logging:
+  level:
+    io:
+      seata: debug
+

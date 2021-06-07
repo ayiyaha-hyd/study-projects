@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd" >
+<mapper namespace="com.hyd.work.dao.OrderDao" >
+    <!-- 查询映射结果集，此处用不到 -->
+    <resultMap id="BaseResultMap" type="com.hyd.work.entity.Order" >
+        <id column="id" property="id" jdbcType="INTEGER" />
+        <result column="user_id" property="userId" jdbcType="VARCHAR" />
+        <result column="commodity_code" property="commodityCode" jdbcType="VARCHAR" />
+        <result column="count" property="count" jdbcType="INTEGER" />
+        <result column="money" property="money" jdbcType="INTEGER" />
+    </resultMap>
+    <insert id="create">
+        INSERT INTO order_tbl (`user_id`,`commodity_code`,`count`,`money`)
+        VALUES(#{userId}, #{commodityCode}, #{count}, #{money});
+    </insert>
+</mapper>

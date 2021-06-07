@@ -3192,6 +3192,26 @@ ribbon:
 
 启动服务访问，调用正常
 
+> 网上各种的方案，都是修改超时时间，当前版本修改超时时间有3中方案：
+>
+> (1) feign client
+>
+> ```
+> #default为全局配置，如果要单独配置每个服务，改为服务名``#默认为10s``feign.client.config.default.connectTimeout=10000``#默认为60s``feign.client.config.default.readTimeout=60000
+> ```
+>
+> （2）hystrix
+>
+> ```
+> #默认为true可不配置``#hystrix.command.default.execution.timeout.enabled=true``#默认为1s``hystrix.command.default.execution.isolation.thread.timeoutInMilliseconds=6000
+> ```
+>
+> （3）rubbin
+>
+> ```
+> ribbon.ConnectTimeout=10000``ribbon.ReadTimeout=60000
+> ```
+
 #### OpenFeign日志打印功能
 
 Feign提供了日志打印功能，我们可以通过配置来调整日恙级别，从而了解Feign 中 Http请求的细节。
@@ -10218,13 +10238,2226 @@ public class FlowRule extends AbstractRule {
 
 ### Spring Cloud Alibaba Seata 处理分布式事务
 
-#### 概述
+#### 分布式事务
 
-##### Seata 是什么
+##### 分布式事务问题
 
-Seata 是一款开源的分布式事务解决方案，致力于提供高性能和简单易用的分布式事务服务。Seata 将为用户提供了 AT、TCC、SAGA 和 XA 事务模式，为用户打造一站式的分布式解决方案。
+分布式系统一次业务操作需要跨多个数据源或需要跨多个系统进行远程调用，就会产生分布式事务问题。
+
+分布式事务主要解决分布式一致性的问题。说到底就是数据的分布式操作导致仅依靠本地事务无法保证原子性。与单机版的事务不同的是，单机是把多个命令打包成一个统一处理，分布式事务是将多个机器上执行的命令打包成一个命令统一处理。
+
+上一篇我们讲 InnoDB 下的事务，MySQL 提供了redo log，undo log， Read View，两阶段提交，MVCC 机制等等来保障事务的安全。分布式事务是不是更难呢？拭目以待。
+
+##### 常见的分布式事务场景
+
+分布式事务其实就在我们身边，你一直在用，但是你却一直不注意它。
+
+**转账**
+
+扣你账户的余额，增加别人账户余额，如果只扣了你的，别人没增加这是失败；如果没扣你的钱别人也增加了那银行的赔钱。
+
+**下订单/扣库存**
+
+电商系统中这是很常见的一个场景，用户下单成功了，店家没收到单，不发货；用户取消了订单，但是店家却看到了订单，发了货。
+
+##### 分库分表场景
+
+当我们的数据量大了之后，我们可能会部署很多独立的数据库，但是你的一个逻辑可能会同时操作很多个数据库的表，这时候该如何保证所有的操作要么成功，要么失败。
+
+##### 分布式系统调用问题
+
+微服务的拆分让各个系统各司其职，但是带来的也有很多痛苦，一个操作可能会伴随很多的外部请求，如果某一个外部系统挂掉了，之前操作已完成的这些是否需要回滚。
+
+针对上面这些问题，我们前面学过的数据库4大特性：ACID 似乎在这里想要达到就变得很困难，单机情况下你还可以通过锁和日志机制来控制数据，在分布式场景又该如何实现呢？在不同的分布式应用架构下，实现一个分布式事务要考虑的问题并不完全一样，比如对多资源的协调、事务的跨服务传播等，实现机制也是复杂多变。尽管有这么多工程细节需要考虑，但分布式事务最核心的还是其 ACID 特性，只是这种 ACID 变换了场景。
+
+##### 分布式理论
+
+###### CAP 定理
+
+传统的 ACID 模型肯定无法解决分布式环境下的挑战，基于此加州大学伯克利分校 Eric Brewer教授提出 CAP 定理，他指出 现代 WEB 服务无法同时满足以下 3 个属性：
+
+- 一致性(Consistency) ： 所有的客户端都能返回最新的操作。
+- 可用性(Availability) ： 非故障的节点在合理的时间内返回合理的响应(不是错误和超时的响应)。
+- 分区容错性(Partition tolerance) ： 即使出现单个组件无法可用，操作依然可以完成。
+
+关于一致性的理解后面分出来三个方向：
+
+- 强一致：任何一次读都能读到某个数据的最近一次写的数据。系统中的所有进程，看到的操作顺序，都和全局时钟下的顺序一致。简言之，在任意时刻，所有节点中的数据是一样的。
+- 弱一致：数据更新后，如果能容忍后续的访问只能访问到部分或者全部访问不到，则是弱一致性。
+- 最终一致：不保证在任意时刻任意节点上的同一份数据都是相同的，但是随着时间的迁移，不同节点上的同一份数据总是在向趋同的方向变化。简单说，就是在一段时间后，节点间的数据会最终达到一致状态。
+
+关于一致性的理解不同，后面对于 CAP 理论的实现就有所不同。
+
+另外 Eric Brewer教授指出现代 WEB 服务无法同时满足这 3 个属性，说的是无法同时满足，那这是为什么呢？
+
+如果在某个分布式系统中无副本，那么必然满足强一致性，同时也满足可用性，但是如果这个数据宕机了，那么可用性就得不到保证。
+
+如果一个系统满足 AP，那么一致性又得不到保证。所以 CAP 原则的精髓就是要么 AP，要么 CP，要么 AC，但是不存在 CAP。
+
+###### BASE 定理
+
+基于前面提到的 CAP，反正我们都无法同时满足CAP，设计系统的最高目的就是让他跑下去不出错，那么是不是可以不要求强一致性，最终让他一致即可。所以后面又提出来了 BASE 定理：
+
+- Basically Available（基本可用）
+- Soft state（软状态）
+- Eventually consistent（最终一致性）
+
+基于现在大型分布式系统的复杂性，我们无法保证服务永远达到999，那么是否可以取舍，核心服务达到999，非核心服务允许挂为了保全核心服务。另外在非核心服务 down 机过程中允许系统暂时出现不一致但是这个不一致并不影响系统的核心功能使用。
+
+最终系统恢复，所有服务一起修复数据，最终达到一致的状态。
+
+业内通常把严格遵循 ACID 的事务称为**刚性事务**，而基于 BASE 思想实现的事务称为**柔性事务**。柔性事务并不是完全放弃了 ACID，仅仅是放宽了一致性要求：事务完成后的一致性严格遵循，事务中的一致性可适当放宽。
+
+##### 常见的分布式事务实现方案
+
+分布式事务实现方案从类型上去分刚性事务、柔型事务。刚性事务：通常无业务改造，强一致性，原生支持回滚/隔离性，低并发，适合短事务。柔性事务：有业务改造，最终一致性，实现补偿接口，实现资源锁定接口，高并发，适合长事务。
+
+- 刚性事务：XA 协议（2PC、JTA、JTS）、3PC
+- 柔型事务：TCC/FMT、Saga（状态机模式、Aop模式）、本地事务消息、消息事务（半消息）、最多努力通知型事务
 
 
+
+分布式事务博客文章：[趁热打铁-再谈分布式事务 - rickiyang - 博客园 (cnblogs.com)](https://www.cnblogs.com/rickiyang/p/13704868.html)
+
+
+
+
+
+
+
+
+
+#### Seata极简入门
+
+> 详细内容见大佬博客文章：[Seata 极简入门](http://seata.io/zh-cn/blog/seata-quick-start.html)
+
+##### 概述
+
+Seata 是阿里开源的一款开源的分布式事务解决方案，致力于提供高性能和简单易用的分布式事务服务。
+
+##### 四种事务模式
+
+- AT 模式：参见[《Seata AT 模式》](https://seata.io/zh-cn/docs/dev/mode/at-mode.html)文档
+- TCC 模式：参见[《Seata TCC 模式》](https://seata.io/zh-cn/docs/dev/mode/tcc-mode.html)文档
+- Saga 模式：参见[《SEATA Saga 模式》](https://seata.io/zh-cn/docs/dev/mode/saga-mode.html)文档
+- XA 模式：参见[《SEATA XA 模式》](http://seata.io/zh-cn/docs/dev/mode/xa-mode.html)文档
+
+目前流行度情况是：AT > TCC > Saga。后续着重介绍AT模式。
+
+##### 三种角色
+
+在 Seata 的架构中，一共有三个角色：
+
+<img src="http://www.iocoder.cn/images/Seata/2017-01-01/02.png" alt="三个角色" style="zoom:50%;" />
+
+
+
+- **TC** (Transaction Coordinator) - 事务协调者：维护全局和分支事务的状态，驱动**全局事务**提交或回滚。
+- **TM** (Transaction Manager) - 事务管理器：定义**全局事务**的范围，开始全局事务、提交或回滚全局事务。
+- **RM** ( Resource Manager ) - 资源管理器：管理**分支事务**处理的资源( Resource )，与 TC 交谈以注册分支事务和报告分支事务的状态，并驱动**分支事务**提交或回滚。
+
+其中，TC 为单独部署的 **Server** 服务端，TM 和 RM 为嵌入到应用中的 **Client** 客户端。
+
+在 Seata 中，一个分布式事务的**生命周期**如下：
+
+<img src="http://www.iocoder.cn/images/Seata/2017-01-01/01.png" alt="架构图" style="zoom: 67%;" />
+
+
+
+> 友情提示：看下大佬艿艿添加的红色小勾。
+
+- TM 请求 TC 开启一个全局事务。TC 会生成一个 **XID** 作为该全局事务的编号。
+
+  > **XID**，会在微服务的调用链路中传播，保证将多个微服务的子事务关联在一起。
+
+- RM 请求 TC 将本地事务注册为全局事务的分支事务，通过全局事务的 **XID** 进行关联。
+
+- TM 请求 TC 告诉 **XID** 对应的全局事务是进行提交还是回滚。
+
+- TC 驱动 RM 们将 **XID** 对应的自己的本地事务进行提交还是回滚。
+
+##### 框架支持情况
+
+Seata 目前提供了对主流的**微服务框架**的支持。（详细见大佬文章原文，此处略）。
+
+- Spring Cloud OpenFeign
+
+  > 通过 [`spring-cloud-starter-alibaba-seata`](https://github.com/alibaba/spring-cloud-alibaba/blob/master/spring-cloud-alibaba-starters/spring-cloud-starter-alibaba-seata/src/main/java/com/alibaba/cloud/seata/) 的 [`feign`](https://github.com/alibaba/spring-cloud-alibaba/blob/master/spring-cloud-alibaba-starters/spring-cloud-starter-alibaba-seata/src/main/java/com/alibaba/cloud/seata/feign/) 模块
+
+- Spring RestTemplate
+
+  > 通过 [`spring-cloud-starter-alibaba-seata`](https://github.com/alibaba/spring-cloud-alibaba/blob/master/spring-cloud-alibaba-starters/spring-cloud-starter-alibaba-seata/src/main/java/com/alibaba/cloud/seata/feign/SeataBeanPostProcessor.java) 的 [`rest`](https://github.com/alibaba/spring-cloud-alibaba/blob/master/spring-cloud-alibaba-starters/spring-cloud-starter-alibaba-seata/src/main/java/com/alibaba/cloud/seata/rest/) 模块
+
+同时方便我们集成到 Java 项目当中，Seata 也提供了相应的 Starter 库：
+
+- [`seata-spring-boot-starter`](https://mvnrepository.com/artifact/io.seata/seata-spring-boot-starter)
+- [`spring-cloud-starter-alibaba-seata`](https://mvnrepository.com/artifact/com.alibaba.cloud/spring-cloud-starter-alibaba-seata)
+
+因为 Seata 是基于 [DataSource](https://docs.oracle.com/javase/7/docs/api/javax/sql/DataSource.html) 数据源进行**代理**来拓展，所以天然对主流的 ORM 框架提供了非常好的支持：
+
+- MyBatis、MyBatis-Plus
+- JPA、Hibernate
+
+
+
+##### 部署单机TC Server
+
+本小节，我们来学习部署**单机** Seata **TC** Server，常用于学习或测试使用，不建议在生产环境中部署单机。
+
+因为 TC 需要进行全局事务和分支事务的记录，所以需要对应的**存储**。目前，TC 有两种存储模式( `store.mode` )：
+
+- file 模式：适合**单机**模式，全局事务会话信息在**内存**中读写，并持久化本地文件 `root.data`，性能较高。
+- db 模式：适合**集群**模式，全局事务会话信息通过 **db** 共享，相对性能差点。
+
+显然，我们将采用 file 模式，最终我们部署单机 TC Server 如下图所示：
+
+<img src="http://www.iocoder.cn/images/Seata/2017-01-01/11.png" alt="单机 TC Server" style="zoom:50%;" />
+
+
+
+###### 下载Seata软件包
+
+下载地址：https://github.com/seata/seata/releases，完成解压（此处为Windows版本）。
+
+###### 启动 TC Server
+
+执行`.bat`脚本启动。此处选用的是默认file模式，直接启动就好。：
+
+```shell
+seata-server.bat
+```
+
+见到以下日志，说明启动成功。
+
+```
+2021-06-06 08:14:48.143 INFO [main]io.seata.common.loader.EnhancedServiceLoader.loadFile:236 -load TransactionStoreManager[DB] extension
+by class[io.seata.server.store.db.DatabaseTransactionStoreManager]
+2021-06-06 08:14:48.143 INFO [main]io.seata.common.loader.EnhancedServiceLoader.loadFile:236 -load SessionManager[DB] extension by class[io.seata.server.session.db.DataBaseSessionManager]
+2021-06-06 08:14:48.593 INFO [main]io.seata.core.rpc.netty.AbstractRpcRemotingServer.start:155 -Server started ...
+```
+
+###### db模式使用Nacos作为注册中心
+
+如果使用db模式，则进行以下配置：
+
+
+
+**资源目录介绍**
+
+目录地址：[seata/script at develop · seata/seata (github.com)](https://github.com/seata/seata/tree/develop/script) ，可以下载Seata源码包解压即可获取。
+
+- client
+
+> 存放client端sql脚本 (包含 undo_log表) ，参数配置
+
+- config-center
+
+> 各个配置中心参数导入脚本，config.txt(包含server和client，原名nacos-config.txt)为通用参数文件
+
+- server
+
+> server端数据库脚本 (包含 lock_table、branch_table 与 global_table) 及各个容器配置
+
+
+
+**初始化数据库**
+
+在db目录下，选择[mysql脚本](https://github.com/seata/seata/tree/develop/script/server/db/mysql.sql)。在 MySQL 中，创建 `seata_server` 数据库，并在该库下执行该脚本。
+
+全局事务会话信息由3块内容构成，全局事务-->分支事务-->全局锁，对应表global_table、branch_table、lock_table。
+
+```mysql
+-- -------------------------------- The script used when storeMode is 'db' --------------------------------
+-- the table to store GlobalSession data
+CREATE TABLE IF NOT EXISTS `global_table`
+(
+    `xid`                       VARCHAR(128) NOT NULL,
+    `transaction_id`            BIGINT,
+    `status`                    TINYINT      NOT NULL,
+    `application_id`            VARCHAR(32),
+    `transaction_service_group` VARCHAR(32),
+    `transaction_name`          VARCHAR(128),
+    `timeout`                   INT,
+    `begin_time`                BIGINT,
+    `application_data`          VARCHAR(2000),
+    `gmt_create`                DATETIME,
+    `gmt_modified`              DATETIME,
+    PRIMARY KEY (`xid`),
+    KEY `idx_gmt_modified_status` (`gmt_modified`, `status`),
+    KEY `idx_transaction_id` (`transaction_id`)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8;
+
+-- the table to store BranchSession data
+CREATE TABLE IF NOT EXISTS `branch_table`
+(
+    `branch_id`         BIGINT       NOT NULL,
+    `xid`               VARCHAR(128) NOT NULL,
+    `transaction_id`    BIGINT,
+    `resource_group_id` VARCHAR(32),
+    `resource_id`       VARCHAR(256),
+    `branch_type`       VARCHAR(8),
+    `status`            TINYINT,
+    `client_id`         VARCHAR(64),
+    `application_data`  VARCHAR(2000),
+    `gmt_create`        DATETIME(6),
+    `gmt_modified`      DATETIME(6),
+    PRIMARY KEY (`branch_id`),
+    KEY `idx_xid` (`xid`)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8;
+
+-- the table to store lock data
+CREATE TABLE IF NOT EXISTS `lock_table`
+(
+    `row_key`        VARCHAR(128) NOT NULL,
+    `xid`            VARCHAR(128),
+    `transaction_id` BIGINT,
+    `branch_id`      BIGINT       NOT NULL,
+    `resource_id`    VARCHAR(256),
+    `table_name`     VARCHAR(32),
+    `pk`             VARCHAR(36),
+    `gmt_create`     DATETIME,
+    `gmt_modified`   DATETIME,
+    PRIMARY KEY (`row_key`),
+    KEY `idx_branch_id` (`branch_id`)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8;
+```
+
+修改 `conf/file.conf` 配置文件，修改事务存储模式为使用 db 数据库，并配置数据库信息。实现 Seata TC Server 的全局事务会话信息的共享。（如果registry.conf中的config.type不为file，为其它配置中心，则此处不配置file.conf，只要默认config.type=file时，才需要）。
+
+```
+## transaction log store, only used in seata-server
+store {
+  ## store mode: file、db
+  # 修改事务日志存储模式
+  mode = "db"
+
+  ## file store property
+  file {
+    ## store location dir
+    dir = "sessionStore"
+  }
+
+  ## database store property
+  # 修改数据库为自己的数据库
+  db {
+    ## the implement of javax.sql.DataSource, such as DruidDataSource(druid)/BasicDataSource(dbcp) etc.
+    datasource = "dbcp"
+    ## mysql/oracle/h2/oceanbase etc.
+    db-type = "mysql"
+    driver-class-name = "com.mysql.jdbc.Driver"
+    url = "jdbc:mysql://127.0.0.1:3306/seata_server"
+    user = "root"
+    password = "123456"
+    min-conn = 1
+    max-conn = 10
+    global.table = "global_table"
+    branch.table = "branch_table"
+    lock-table = "lock_table"
+    query-limit = 100
+  }
+}
+```
+
+修改 `conf/registry.conf` 配置文件，设置使用 Nacos 注册中心。注意这里有一个坑，serverAddr不能带‘http://’前缀。
+
+```
+registry {
+  # file 、nacos 、eureka、redis、zk、consul、etcd3、sofa
+  type = "nacos"
+
+  nacos {
+    serverAddr = "localhost:8848"
+    namespace = ""
+    cluster = "default"
+  }
+  eureka {
+    serviceUrl = "http://localhost:8761/eureka"
+    application = "default"
+    weight = "1"
+  }
+  redis {
+    serverAddr = "localhost:6379"
+    db = "0"
+    password = ""
+    cluster = "default"
+    timeout = "0"
+  }
+  zk {
+    cluster = "default"
+    serverAddr = "127.0.0.1:2181"
+    session.timeout = 6000
+    connect.timeout = 2000
+    username = ""
+    password = ""
+  }
+  consul {
+    cluster = "default"
+    serverAddr = "127.0.0.1:8500"
+  }
+  etcd3 {
+    cluster = "default"
+    serverAddr = "http://localhost:2379"
+  }
+  sofa {
+    serverAddr = "127.0.0.1:9603"
+    application = "default"
+    region = "DEFAULT_ZONE"
+    datacenter = "DefaultDataCenter"
+    cluster = "default"
+    group = "SEATA_GROUP"
+    addressWaitTime = "3000"
+  }
+  file {
+    name = "file.conf"
+  }
+}
+
+config {
+  # file、nacos 、apollo、zk、consul、etcd3、springCloudConfig
+  type = "nacos"
+
+  nacos {
+    serverAddr = "localhost"
+    namespace = ""
+    group = "SEATA_GROUP"
+  }
+  consul {
+    serverAddr = "127.0.0.1:8500"
+  }
+  apollo {
+    app.id = "seata-server"
+    apollo.meta = "http://192.168.1.204:8801"
+    namespace = "application"
+  }
+  zk {
+    serverAddr = "127.0.0.1:2181"
+    session.timeout = 6000
+    connect.timeout = 2000
+    username = ""
+    password = ""
+  }
+  etcd3 {
+    serverAddr = "http://localhost:2379"
+  }
+  file {
+    name = "file.conf"
+  }
+}
+```
+
+
+
+---
+
+#### Seata部署指南
+
+官方新人部署指南：[Seata部署指南](http://seata.io/zh-cn/docs/ops/deploy-guide-beginner.html)
+
+Seata分TC、TM和RM三个角色，TC（Server端）为单独服务端部署，TM和RM（Client端）由业务系统集成。
+
+##### 启动Server
+
+步骤一：初始化数据库
+
+全局事务会话信息由3块内容构成，全局事务-->分支事务-->全局锁，对应表global_table、branch_table、lock_table。
+
+步骤二：修改registry.conf
+
+该配置用于指定 TC 的注册中心和配置文件，默认都是 file; 可以将 Seata-Server 注册到注册中心，同时可以通过config.type指定配置文件类型及位置，默认为file，配置文件为file.conf，可以注册到nacos上。此时，本地的file.conf就没作用了，在nacos上进行配置。
+
+```
+registry {
+  # file 、nacos 、eureka、redis、zk、consul、etcd3、sofa
+  type = "file"
+
+  nacos {
+    serverAddr = "localhost:8848"
+    namespace = ""
+    cluster = "default"
+  }
+  eureka {
+    serviceUrl = "http://localhost:8761/eureka"
+    application = "default"
+    weight = "1"
+  }
+  redis {
+    serverAddr = "localhost:6379"
+    db = "0"
+  }
+  zk {
+    cluster = "default"
+    serverAddr = "127.0.0.1:2181"
+    session.timeout = 6000
+    connect.timeout = 2000
+  }
+  consul {
+    cluster = "default"
+    serverAddr = "127.0.0.1:8500"
+  }
+  etcd3 {
+    cluster = "default"
+    serverAddr = "http://localhost:2379"
+  }
+  sofa {
+    serverAddr = "127.0.0.1:9603"
+    application = "default"
+    region = "DEFAULT_ZONE"
+    datacenter = "DefaultDataCenter"
+    cluster = "default"
+    group = "SEATA_GROUP"
+    addressWaitTime = "3000"
+  }
+  file {
+    name = "file.conf"
+  }
+}
+
+config {
+  # file、nacos 、apollo、zk、consul、etcd3
+  type = "file"
+
+  nacos {
+    serverAddr = "localhost"
+    namespace = ""
+  }
+  consul {
+    serverAddr = "127.0.0.1:8500"
+  }
+  apollo {
+    app.id = "seata-server"
+    apollo.meta = "http://192.168.1.204:8801"
+  }
+  zk {
+    serverAddr = "127.0.0.1:2181"
+    session.timeout = 6000
+    connect.timeout = 2000
+  }
+  etcd3 {
+    serverAddr = "http://localhost:2379"
+  }
+  file {
+    name = "file.conf"
+  }
+}
+```
+
+步骤三：修改file.conf
+
+修改事务存储模式为使用 db 数据库，并配置数据库连接信息。实现 Seata TC Server 的全局事务会话信息的共享。注意**不需要配置**service{}模块，该模块是client客户端配置，有许多文章再此配置了，根本没必要，详细查看官方Seata配置文档：[Seata 参数配置](https://seata.io/zh-cn/docs/user/configurations.html)。
+
+```
+## transaction log store, only used in seata-server
+store {
+  ## store mode: file、db
+  # 修改事务日志存储模式
+  mode = "db"
+
+  ## file store property
+  file {
+    ## store location dir
+    dir = "sessionStore"
+  }
+
+  ## database store property
+  # 修改数据库为自己的数据库
+  db {
+    ## the implement of javax.sql.DataSource, such as DruidDataSource(druid)/BasicDataSource(dbcp) etc.
+    datasource = "dbcp"
+    ## mysql/oracle/h2/oceanbase etc.
+    db-type = "mysql"
+    driver-class-name = "com.mysql.jdbc.Driver"
+    url = "jdbc:mysql://127.0.0.1:3306/seata_server"
+    user = "root"
+    password = "123456"
+    min-conn = 1
+    max-conn = 10
+    global.table = "global_table"
+    branch.table = "branch_table"
+    lock-table = "lock_table"
+    query-limit = 100
+  }
+}
+```
+
+启动Seata-Server
+
+```
+# windows
+seata-server.bat
+```
+
+
+
+##### 业务系统集成Client（AT模式）
+
+步骤一：添加seata依赖（三选一）
+
+* seata-all
+* seata-spring-boot-starter
+* spring-cloud-alibaba-seata
+
+`seata-all`,`seata-spring-boot-starter`和`spring-cloud-alibaba-seata`三者区别
+
+| 依赖                       | 支持yml配置 | 实现xid传递 | 支持数据源自动代理 | 自动初始化GlobalTransactionScanner入口 |
+| -------------------------- | ----------- | ----------- | ------------------ | -------------------------------------- |
+| seata-all                  | 否          | 否          | 是                 | 否                                     |
+| seata-spring-boot-starter  | 是          | 否          | 是                 | 是                                     |
+| spring-cloud-alibaba-seata | 是          | 是          | 是                 | 是                                     |
+
+0.9.0版本开始seata支持自动代理数据源。
+
+```
+1.1.0: seata-all取消属性配置，改由注解@EnableAutoDataSourceProxy开启，并可选择jdk proxy或者cglib proxy
+1.0.0: client.support.spring.datasource.autoproxy=true
+0.9.0: support.spring.datasource.autoproxy=true
+```
+
+目前seata-all是需要使用conf类型配置文件，后续会支持properties和yml类型文件。当前可以在项目中依赖seata-spring-boot-starter，然后将配置项写入到application .properties 这样可以不使用conf类型文件。
+
+- 依赖 seata-spring-boot-starter 时，自动代理数据源，无需额外处理。
+- 依赖 seata-all 时，使用 @EnableAutoDataSourceProxy (since 1.1.0) 注解，注解参数可选择 jdk 代理或者 cglib 代理。
+- 依赖 seata-all 时，也可以手动使用 DatasourceProxy 来包装 DataSource。
+
+1. 配置 GlobalTransactionScanner，使用 seata-all 时需要手动配置，使用 seata-spring-boot-starter 时无需额外处理。
+
+seata-spring-boot-starter内置GlobalTransactionScanner自动初始化功能，若外部实现初始化，请参考SeataAutoConfiguration保证依赖加载顺序 默认开启数据源自动代理，可配置seata.enable-auto-data-source-proxy: false关闭。
+
+
+
+
+
+**seata-all**
+
+需要手动配置GlobalTransactionScanner（全局事务扫描器）、Rpc Interceptor（解决事务跨服务传播）。
+
+**seata-spring-boot-starter**
+
+支持yml、properties配置(.conf可删除)，内部已依赖seata-all。
+
+**spring-cloud-alibaba-seata**
+
+内部集成了seata，并实现了xid传递。
+
+
+
+
+
+**步骤二：配置seata client端registry.conf和file.conf配置文件**
+
+通过*.conf配置seata client配置文件registry.conf和file.conf
+
+registry 配置注册中心
+
+```
+registry {
+  type = "nacos"
+  nacos {
+	# nacos服务地址
+    serverAddr = "localhost:8848"
+    namespace = ""
+    cluster = "default"
+  }
+}
+config {
+  type = "file"
+  file {
+    name = "file.conf"
+  }
+}
+```
+
+file.conf 配置事务组，及是否开启全局事务。
+
+自定义事务组名称（需要注意的是 `service.vgroup_mapping`这个配置，在 Spring Cloud 中默认是`${spring.application.name}-fescar-service-group`，可以通过指定`application.properties`的 `spring.cloud.alibaba.seata.tx-service-group`这个属性覆盖，但是必须要和 `file.conf `中的一致，否则会提示 `no available server to connect`）。如果不通过application配置文件指定及不自动配置，则通过GlobalTransactionScanner指定txServiceGroup。
+
+```
+service {
+  #vgroup->rgroup
+  vgroup_mapping.order_group = "default"
+  #only support single node
+  default.grouplist = "127.0.0.1:8091"
+  #degrade current not support
+  enableDegrade = false
+  #disable
+  disable = false
+  disableGlobalTransaction = false
+}
+```
+
+通过application.properties或application.yaml配置seata client配置文件。
+
+目前seata-all是需要使用conf类型配置文件，后续会支持properties和yml类型文件。当前可以在项目中依赖seata-spring-boot-starter，然后将配置项写入到application .properties 这样可以不使用conf类型文件。
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+步骤三：undo_log建表、配置参数
+
+为每个微服务RM（资源管理器）对应数据库建立undo_log日志回滚表。
+
+`undo_log`日志表建表`sql`在seata-server源码包：`seata-1.0.0/script/client/at/db/`目录下的`mysql.sql`。
+
+在业务相关的数据库中添加 undo_log 表，用于保存需要回滚的数据（AT模式）。对每个微服务连接的不同数据库都需要各自单独创建该表。
+
+mysql.sql
+
+```mysql
+-- for AT mode you must to init this sql for you business database. the seata server not need it.
+CREATE TABLE IF NOT EXISTS `undo_log`
+(
+    `id`            BIGINT(20)   NOT NULL AUTO_INCREMENT COMMENT 'increment id',
+    `branch_id`     BIGINT(20)   NOT NULL COMMENT 'branch transaction id',
+    `xid`           VARCHAR(100) NOT NULL COMMENT 'global transaction id',
+    `context`       VARCHAR(128) NOT NULL COMMENT 'undo_log context,such as serialization',
+    `rollback_info` LONGBLOB     NOT NULL COMMENT 'rollback info',
+    `log_status`    INT(11)      NOT NULL COMMENT '0:normal status,1:defense status',
+    `log_created`   DATETIME     NOT NULL COMMENT 'create datetime',
+    `log_modified`  DATETIME     NOT NULL COMMENT 'modify datetime',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `ux_undo_log` (`xid`, `branch_id`)
+) ENGINE = InnoDB
+  AUTO_INCREMENT = 1
+  DEFAULT CHARSET = utf8 COMMENT ='AT transaction mode undo table';
+```
+
+AT模式下Seata Client端主要通过如下三个模块来实现分布式事务：
+
+- **GlobalTransactionScanner：** GlobalTransactionScanner负责初始TM、RM模块，并为添加分布式事务注解的方法添加拦截器，拦截器负责全局事务的开启、提交或回滚
+- **DatasourceProxy：** DatasourceProxy为DataSource添加拦截，拦截器会拦截所有SQL执行，并作为RM事务参与方的角色参与分布式事务执行。
+- **Rpc Interceptor：**分布式事务的跨服务实例传播，解决XID跨服务传播。Rpc Interceptor的职责就是负责在多个微服务之间传播事务。
+
+步骤四：数据源代理(不支持自动和手动配置并存,不支持XA数据源自动代理)
+
+手动配置数据源代理
+
+手动配置数据源代理，需要在启动类排除spring数据源自动装配：
+
+```java
+@SpringBootApplication(exclude = DataSourceAutoConfiguration.class)//取消数据源自动创建，使用seata进行数据源代理
+```
+
+
+
+Mybatis案例
+
+```java
+/**
+ * seata 数据源代理
+ * Seata 通过代理数据源的方式实现分支事务；
+ * MyBatis 和 JPA 都需要注入 io.seata.rm.datasource.DataSourceProxy,
+ * 不同的是，MyBatis 还需要额外注入 org.apache.ibatis.session.SqlSessionFactory
+ */
+@Configuration
+public class DataSourceProxyConfig {
+    @Bean
+    @ConfigurationProperties(prefix = "spring.datasource")
+    public DataSource dataSource() {
+        return new DruidDataSource();
+    }
+
+    @Primary
+    @Bean("datasource")
+    public DataSourceProxy DataSourceProxy(DataSource dataSource) {
+        return new DataSourceProxy(dataSource);
+    }
+
+    @Bean
+    public SqlSessionFactory sqlSessionFactoryBean(DataSourceProxy dataSourceProxy) throws Exception {
+        SqlSessionFactoryBean sqlSessionFactoryBean = new SqlSessionFactoryBean();
+        sqlSessionFactoryBean.setDataSource(dataSourceProxy);
+        sqlSessionFactoryBean.setMapperLocations(new PathMatchingResourcePatternResolver()
+                .getResources("classpath:/mapper/*Mapper.xml"));
+        sqlSessionFactoryBean.setTransactionFactory(new SpringManagedTransactionFactory());
+        return sqlSessionFactoryBean.getObject();
+    }
+
+}
+```
+
+
+
+使用spring-cloud-starter-alibaba-seata + Mybatis手动代理数据源的时候，进行如下配置：
+
+```java
+@Configuration
+public class DataSourceProxyConfig {
+    @Bean
+    public SqlSessionFactory sqlSessionFactoryBean(DataSource dataSource) throws Exception {
+        SqlSessionFactoryBean sqlSessionFactoryBean = new SqlSessionFactoryBean();
+        sqlSessionFactoryBean.setDataSource(dataSource);
+        sqlSessionFactoryBean.setMapperLocations(new PathMatchingResourcePatternResolver()
+                .getResources("classpath:/mapper/*Mapper.xml"));
+        sqlSessionFactoryBean.setTransactionFactory(new SpringManagedTransactionFactory());
+        return sqlSessionFactoryBean.getObject();
+    }
+
+}
+```
+
+
+
+
+
+自动配置
+
+0.9.0版本开始seata支持自动代理数据源。seata-all:0.9.0版本开始支持自动代理数据源，默认关闭。
+
+seata-spring-boot-starter和spring-cloud-starter-alibaba-seata支持自动代理数据源，并且默认开启。
+
+```
+1.1.0: seata-all取消属性配置，改由注解@EnableAutoDataSourceProxy开启，并可选择jdk proxy或者cglib proxy
+1.0.0: client.support.spring.datasource.autoproxy=true
+0.9.0: support.spring.datasource.autoproxy=true
+```
+
+以seata-all:1.0.0 为例，在file.conf添加以下属性，开启自动配置
+
+```
+client {
+
+  support {
+    # auto proxy the DataSource bean
+    # 自动配置数据源代理，默认false关闭，如果配置了自动代理，则开启，否则关闭
+    spring.datasource.autoproxy = true
+  }
+}
+```
+
+
+
+步骤五：初始化GlobalTransactionScanner
+
+手动配置
+
+seata-all不支持自动配置，需要手动配置，seata-spring-boot-starter、spring-cloud-starter-alibaba-seata支持自动配置，默认开启，也可以手动配置。
+
+```java
+@Configuration
+public class GlobalTransactionScannerConfig {
+
+    @Value("${spring.application.name}")
+    private String applicationId;
+
+    //与该微服务对应的 seata file.conf 中 service.vgroup_mapping 事务组字段一致
+    private static final String TX_SERVICE_GROUP = "order_group";
+
+    @Bean
+    public GlobalTransactionScanner globalTransactionScanner() {
+        return new GlobalTransactionScanner(applicationId, TX_SERVICE_GROUP);
+    }
+
+}
+```
+
+自动配置
+
+引入seata-spring-boot-starter、spring-cloud-starter-alibaba-seata等jar。
+
+
+
+步骤六：实现xid跨服务传递
+
+官方Seata事务文档：[Seata 微服务框架支持](http://seata.io/zh-cn/docs/user/microservice.html)，介绍了事务上下文以及跨服务事务传播及实现。
+
+手动
+
+参考源码integration文件夹下的各种rpc实现 module
+
+此处自己写了一个测试用的Demo，服务调用方通过拦截器传递XID，服务提供方通过过滤器获取XID。
+
+拦截器SeataXidInterceptor
+
+```java
+/**
+ * 跨服务调用的事务传播
+ * 把服务调用方 RootContext XID 通过服务调用传递到服务提供方
+ *
+ * 服务调用方传递 XID
+ *
+ * 拦截器添加请求头数据
+ */
+@Component
+@Slf4j
+public class SeataXidInterceptor implements RequestInterceptor {
+
+    @Override
+    public void apply(RequestTemplate template) {
+        String xid = RootContext.getXID();
+        if(StringUtils.isNotBlank(xid)){
+            //将当前事务的XID放入请求Header
+            template.header(RootContext.KEY_XID,xid);
+            log.info("set xid["+xid+"] to request Header");
+        }
+    }
+}
+```
+
+过滤器SeataXidFilter
+
+```java
+/**
+ * 跨服务调用的事务传播
+ * 把 RootContext XID 通过服务调用传递到服务提供方
+ * 将 HttpServletRequest 中的 Seata XID 绑定到 RootContext 中
+ *
+ * 服务提供方获取 XID
+ *
+ * 过滤器解析请求头数据
+ */
+@Slf4j
+@Component
+public class SeataXidFilter implements Filter {
+    @Override
+    public void init(FilterConfig filterConfig) throws ServletException {
+
+    }
+
+    @Override
+    public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain) throws IOException, ServletException {
+        // 获取请求头 XID
+        String xid = ((HttpServletRequest) request).getHeader(RootContext.KEY_XID);
+        log.info("xid in HttpServletRequest is:[" + xid + "]");
+        boolean bind = false;
+        if(StringUtils.isNotBlank(xid)){
+            RootContext.bind(xid);
+            bind = true;
+            log.info("bind xid[" + xid + "] to RootContext");
+        }
+        try {
+            chain.doFilter(request,response);
+        }finally {
+            if(bind){
+                String unbind = RootContext.unbind();
+                log.info("unbind xid[" + unbind + "] from RootContext");
+            }
+        }
+
+    }
+
+    @Override
+    public void destroy() {
+
+    }
+}
+```
+
+
+
+自动
+
+springCloud用户可以引入spring-cloud-starter-alibaba-seata，内部已经实现xid传递
+
+
+
+步骤七：使用@GlobalTransactional开启事务
+在业务的发起方的方法上使用@GlobalTransactional开启全局事务，Seata 会将事务的 xid 通过拦截器添加到调用其他服务的请求中，实现分布式事务
+
+SpringCloud应用使用注解开启分布式事务时，若默认服务 provider 端加入 consumer 端的事务，provider 可不标注注解。但是，provider 同样需要相应的依赖和配置，仅可省略注解。
+
+使用注解开启分布式事务时，若要求事务回滚，必须将异常抛出到事务的发起方，被事务发起方的 @GlobalTransactional 注解感知到。provide 直接抛出异常 或 定义错误码由 consumer 判断再抛出异常。
+
+
+
+**注意事项**
+
+
+
+seata依赖引入有以下几种方式：
+
+```xml
+<dependency>
+    <groupId>io.seata</groupId>
+    <artifactId>seata-all</artifactId>
+    <version>1.0.0</version>
+</dependency>
+```
+
+```xml
+<dependency>
+    <groupId>io.seata</groupId>
+    <artifactId>seata-spring-boot-starter</artifactId>
+    <version>最新版</version>
+</dependency>
+```
+
+
+
+```xml
+<!-- seata （指定版本，此处自带版本为1.0.0，无需排除，此处为演示） -->
+<dependency>
+    <groupId>com.alibaba.cloud</groupId>
+    <artifactId>spring-cloud-starter-alibaba-seata</artifactId>
+    <exclusions>
+        <!-- 排除自带的版本 -->
+        <exclusion>
+            <groupId>io.seata</groupId>
+            <artifactId>seata-all</artifactId>
+        </exclusion>
+    </exclusions>
+</dependency>
+<!-- 添加指定版本 -->
+<dependency>
+    <groupId>io.seata</groupId>
+    <artifactId>seata-all</artifactId>
+    <version>1.0.0</version>
+</dependency>
+```
+
+spring-cloud-starter-alibaba-seata推荐依赖配置方式（解决starter依赖兼容问题）。
+
+```xml
+<dependency>
+    <groupId>com.alibaba.cloud</groupId>
+    <artifactId>spring-cloud-starter-alibaba-seata</artifactId>
+    <version>2.2.1.RELEASE</version>
+    <exclusions>
+        <!-- 排除自带的版本 -->
+        <exclusion>
+            <groupId>io.seata</groupId>
+            <artifactId>seata-spring-boot-starter</artifactId>
+        </exclusion>
+    </exclusions>
+</dependency>
+<!-- 添加指定版本 -->
+<dependency>
+    <groupId>io.seata</groupId>
+    <artifactId>seata-spring-boot-starter</artifactId>
+    <version>最新版</version>
+</dependency>
+```
+
+使用seata-spring-boot-starter和spring-cloud-starter-alibaba-seata时，如果seata client使用conf配置文件，则application.yaml需要配置事务组名称，不然默认使用`${spring.application.name}-seata-service-group`作为事务组名称，注意该默认配置字段在seata事务数据库字段长度不能超过36。
+
+```yaml
+spring:
+  cloud:
+    alibaba:
+      seata:
+        # (order,storage,account)事务组名称，与seata配置文件中vgroup_mapping.storage_group值一致
+        tx-service-group: storage_group
+```
+
+
+
+---
+
+
+
+#### SpringCloud + Nacos + Feign + Seata案例
+
+本文将通过一个简单的微服务架构的例子，说明业务如何step by step的使用 Seata、Feign、SpringCloud和 Nacos 来保证业务数据的一致性。本文所述的例子中 SpringCloud和 Seata 注册配置服务中心均使用 Nacos。
+
+##### 业务案例
+
+用户采购商品业务，整个业务包含3个微服务:
+
+- 库存服务(StorageService): 扣减给定商品的库存数量。
+- 订单服务(OrderService): 根据采购请求生成订单。
+- 账户服务(AccountService): 用户账户金额扣减。
+
+##### 业务结构
+
+business --> order , business  --> storage , business  --> account
+
+其实做成（x->a,x->b,b->c，这样的好一些，不过无所谓）。
+
+三个微服务模块：
+
+* order-service # 订单微服务模块
+* storage-service # 库存微服务模块
+* account-service # 账户微服务模块
+
+一个商业服务模块：
+
+* business模块
+
+**说明:** 以上三个微服务独立部署。
+
+
+
+##### 搭建seata-server
+
+修改`registry.conf`
+
+修改`file.conf`
+
+修改事务日志存储模式，配置数据库连接信息
+
+为seata-server创建事务日志存储数据库及对应三张表：`global_table`,`branch_table`,`lock_table`。
+
+先启动nacos-server
+
+nacos-server启动成功后，再启动seata-server。
+
+seata-server启动成功，并且成功注册到nacos中。
+
+
+
+##### 应用配置
+
+###### 创建 undo_log（用于 Seata AT 模式）表和相关业务表
+
+```mysql
+-- 创建 order库、业务表、undo_log表
+create database seata_order;
+use seata_order;
+
+DROP TABLE IF EXISTS `order_tbl`;
+CREATE TABLE `order_tbl` (
+    `id` int(11) NOT NULL AUTO_INCREMENT,
+    `user_id` varchar(255) DEFAULT NULL COMMENT '用户id',
+    `commodity_code` varchar(255) DEFAULT NULL COMMENT '产品编码',
+    `count` int(11) DEFAULT 0 COMMENT '数量',
+    `money` int(11) DEFAULT 0 COMMENT '金额',
+    PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8 COMMENT '订单表';
+
+CREATE TABLE `undo_log` (
+    `id`            BIGINT(20)   NOT NULL AUTO_INCREMENT,
+    `branch_id`     BIGINT(20)   NOT NULL,
+    `xid`           VARCHAR(100) NOT NULL,
+    `context`       VARCHAR(128) NOT NULL,
+    `rollback_info` LONGBLOB     NOT NULL,
+    `log_status`    INT(11)      NOT NULL,
+    `log_created`   DATETIME     NOT NULL,
+    `log_modified`  DATETIME     NOT NULL,
+    `ext`           VARCHAR(100) DEFAULT NULL,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `ux_undo_log` (`xid`, `branch_id`)
+) ENGINE = InnoDB
+  AUTO_INCREMENT = 1
+  DEFAULT CHARSET = utf8;
+
+
+-- 创建 storage库、业务表、undo_log表
+create database seata_storage;
+use seata_storage;
+
+DROP TABLE IF EXISTS `storage_tbl`;
+CREATE TABLE `storage_tbl` (
+    `id` int(11) NOT NULL AUTO_INCREMENT,
+    `commodity_code` varchar(255) DEFAULT NULL,
+    `count` int(11) DEFAULT 0,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY (`commodity_code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+
+CREATE TABLE `undo_log` (
+    `id`            BIGINT(20)   NOT NULL AUTO_INCREMENT,
+    `branch_id`     BIGINT(20)   NOT NULL,
+    `xid`           VARCHAR(100) NOT NULL,
+    `context`       VARCHAR(128) NOT NULL,
+    `rollback_info` LONGBLOB     NOT NULL,
+    `log_status`    INT(11)      NOT NULL,
+    `log_created`   DATETIME     NOT NULL,
+    `log_modified`  DATETIME     NOT NULL,
+    `ext`           VARCHAR(100) DEFAULT NULL,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `ux_undo_log` (`xid`, `branch_id`)
+) ENGINE = InnoDB
+  AUTO_INCREMENT = 1
+  DEFAULT CHARSET = utf8;
+
+-- 初始化库存模拟数据
+INSERT INTO seata_storage.storage_tbl (id, commodity_code, count) VALUES (1, 'product-1', 9999999);
+INSERT INTO seata_storage.storage_tbl (id, commodity_code, count) VALUES (2, 'product-2', 0);
+
+
+-- 创建 account库、业务表、undo_log表
+create database seata_order;
+use seata_account;
+
+DROP TABLE IF EXISTS `account_tbl`;
+CREATE TABLE `account_tbl` (
+    `id` int(11) NOT NULL AUTO_INCREMENT,
+    `user_id` varchar(255) DEFAULT NULL,
+    `money` int(11) DEFAULT 0,
+    PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+
+CREATE TABLE `undo_log` (
+    `id`            BIGINT(20)   NOT NULL AUTO_INCREMENT,
+    `branch_id`     BIGINT(20)   NOT NULL,
+    `xid`           VARCHAR(100) NOT NULL,
+    `context`       VARCHAR(128) NOT NULL,
+    `rollback_info` LONGBLOB     NOT NULL,
+    `log_status`    INT(11)      NOT NULL,
+    `log_created`   DATETIME     NOT NULL,
+    `log_modified`  DATETIME     NOT NULL,
+    `ext`           VARCHAR(100) DEFAULT NULL,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `ux_undo_log` (`xid`, `branch_id`)
+) ENGINE = InnoDB
+  AUTO_INCREMENT = 1
+  DEFAULT CHARSET = utf8;
+
+-- 初始化账户模拟数据
+insert into seata_account.account_tbl (id, user_id, money) VALUES (1,'user-01',10000);
+insert into seata_account.account_tbl (id, user_id, money) VALUES (2,'user-02',0);
+
+-- 创建商品购买业务数据库，用来存放undo_log，虽然它没有进行数据库操作，但属于一个事务
+create database seata_business;
+use seata_business;
+
+CREATE TABLE `undo_log` (
+    `id`            BIGINT(20)   NOT NULL AUTO_INCREMENT,
+    `branch_id`     BIGINT(20)   NOT NULL,
+    `xid`           VARCHAR(100) NOT NULL,
+    `context`       VARCHAR(128) NOT NULL,
+    `rollback_info` LONGBLOB     NOT NULL,
+    `log_status`    INT(11)      NOT NULL,
+    `log_created`   DATETIME     NOT NULL,
+    `log_modified`  DATETIME     NOT NULL,
+    `ext`           VARCHAR(100) DEFAULT NULL,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `ux_undo_log` (`xid`, `branch_id`)
+) ENGINE = InnoDB
+  AUTO_INCREMENT = 1
+  DEFAULT CHARSET = utf8;
+
+
+-- 建表sql end ---
+```
+
+
+
+###### 引入 Seata、SpringCloud和 Nacos 相关 POM 依赖
+
+> 此处演示引入seata-all。
+
+```xml
+<dependencies>
+    <!-- seata -->
+    <dependency>
+        <groupId>io.seata</groupId>
+        <artifactId>seata-all</artifactId>
+        <version>1.0.0</version>
+    </dependency>
+    <!--nacos discovery -->
+    <dependency>
+        <groupId>com.alibaba.cloud</groupId>
+        <artifactId>spring-cloud-starter-alibaba-nacos-discovery</artifactId>
+    </dependency>
+    <!-- feign -->
+    <dependency>
+        <groupId>org.springframework.cloud</groupId>
+        <artifactId>spring-cloud-starter-openfeign</artifactId>
+    </dependency>
+    <!-- web -->
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+    <!-- mybatis -->
+    <dependency>
+        <groupId>org.mybatis.spring.boot</groupId>
+        <artifactId>mybatis-spring-boot-starter</artifactId>
+    </dependency>
+    <!-- mysql -->
+    <dependency>
+        <groupId>mysql</groupId>
+        <artifactId>mysql-connector-java</artifactId>
+    </dependency>
+    <!-- druid -->
+    <dependency>
+        <groupId>com.alibaba</groupId>
+        <artifactId>druid-spring-boot-starter</artifactId>
+    </dependency>
+    <!-- lombok -->
+    <dependency>
+        <groupId>org.projectlombok</groupId>
+        <artifactId>lombok</artifactId>
+        <optional>true</optional>
+    </dependency>
+</dependencies>
+```
+
+###### 配置文件
+
+订单模块application.yaml示例，库存模块，账户模块类似，略。
+
+```yaml
+server:
+  port: 8001
+spring:
+  application:
+    name: order-service # 订单微服务模块
+  datasource:
+    type: com.alibaba.druid.pool.DruidDataSource
+    driver-class-name: com.mysql.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/seata_order?useUnicode=true&characterEncoding=utf-8&allowMultiQueries=true&useSSL=false
+    username: root
+    password: 123456
+  cloud:
+    nacos:
+      discovery:
+        server-addr: localhost:8848
+
+mybatis:
+  mapper-locations: classpath:mapper/*Mapper.xml
+  type-aliases-package: com.hyd.work.entity
+
+logging:
+  level:
+    io:
+      seata: debug
+```
+
+业务模块application.yaml示例，比上述模块多了一个配置，允许存在多个Feign调用相同Service的接口。
+
+```yaml
+server:
+  port: 80
+spring:
+  application:
+    name: business-service
+  cloud:
+    nacos:
+      discovery:
+        server-addr: localhost:8848
+
+  main:
+    allow-bean-definition-overriding: true #允许存在多个Feign调用相同Service的接口
+
+feign:
+  client:
+    config:
+      - default:
+          connectTimeout: 10000
+          readTimeout: 60000
+
+logging:
+  level:
+    io:
+      seata: debug
+```
+
+seata配置文件（此处使用seata-all:1.0.0，该依赖目前是需要使用conf类型配置文件，官方文档说后续会支持yaml等配置文件）
+
+registry.conf
+
+```
+registry {
+  type = "nacos"
+  nacos {
+	# nacos服务地址
+    serverAddr = "localhost:8848"
+    namespace = ""
+    cluster = "default"
+  }
+}
+config {
+  type = "file"
+  file {
+    name = "file.conf"
+  }
+}
+```
+
+file.conf，此处为每个微服务模块配置了一个事务组名称，其它模块为order_group/account_group等等。（仅client需要配置，seata server端不需要配置service模块，有些文章误导人）。
+
+```
+service {
+  #vgroup->rgroup
+  vgroup_mapping.business_group = "default"
+  #only support single node
+  default.grouplist = "127.0.0.1:8091"
+  #degrade current not support
+  enableDegrade = false
+  #disable
+  disable = false
+  disableGlobalTransaction = false
+}
+```
+
+
+
+##### 数据源代理
+
+此处seata-all依赖，选择手动代理模式。三个微服务模块(RM)都需要配置，业务模块不涉及资源(RM)不配置。
+
+```java
+package com.hyd.work.config;
+
+import com.alibaba.druid.pool.DruidDataSource;
+import io.seata.rm.datasource.DataSourceProxy;
+import io.seata.spring.annotation.GlobalTransactionScanner;
+import org.apache.ibatis.session.SqlSessionFactory;
+import org.mybatis.spring.SqlSessionFactoryBean;
+import org.mybatis.spring.transaction.SpringManagedTransactionFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
+import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
+
+import javax.sql.DataSource;
+
+/**
+ * seata 数据源代理
+ * Seata 通过代理数据源的方式实现分支事务；
+ * MyBatis 和 JPA 都需要注入 io.seata.rm.datasource.DataSourceProxy,
+ * 不同的是，MyBatis 还需要额外注入 org.apache.ibatis.session.SqlSessionFactory
+ */
+@Configuration
+public class DataSourceProxyConfig {
+    @Bean
+    @ConfigurationProperties(prefix = "spring.datasource")
+    public DataSource dataSource() {
+        return new DruidDataSource();
+    }
+
+    @Primary
+    @Bean("datasource")
+    public DataSourceProxy DataSourceProxy(DataSource dataSource) {
+        return new DataSourceProxy(dataSource);
+    }
+
+    @Bean
+    public SqlSessionFactory sqlSessionFactoryBean(DataSourceProxy dataSourceProxy) throws Exception {
+        SqlSessionFactoryBean sqlSessionFactoryBean = new SqlSessionFactoryBean();
+        sqlSessionFactoryBean.setDataSource(dataSourceProxy);
+        sqlSessionFactoryBean.setMapperLocations(new PathMatchingResourcePatternResolver()
+                .getResources("classpath:/mapper/*Mapper.xml"));
+        sqlSessionFactoryBean.setTransactionFactory(new SpringManagedTransactionFactory());
+        return sqlSessionFactoryBean.getObject();
+    }
+
+    @Value("${spring.application.name}")
+    private String applicationId;
+
+    //与该微服务对应的 seata file.conf 中 service.vgroup_mapping 事务组字段一致
+    private static final String TX_SERVICE_GROUP = "order_group";
+
+    @Bean
+    public GlobalTransactionScanner globalTransactionScanner() {
+        return new GlobalTransactionScanner(applicationId, TX_SERVICE_GROUP);
+    }
+
+}
+```
+
+
+
+##### 初始化GlobalTransactionScanner
+
+此处使用的seata-all依赖，seata-all不支持自动代理，需要进行手动代理。
+
+见上面代码。每个微服务模块都需要配置，以实现seata全局事务管理。
+
+##### 实现xid跨服务传递
+
+此处使用的seata-all依赖，需要自己实现。
+
+服务调用方通过 SeataXidInterceptor 拦截器传递 XID
+
+```java
+/**
+ * 跨服务调用的事务传播
+ * 把服务调用方 RootContext XID 通过服务调用传递到服务提供方
+ *
+ * 服务调用方传递 XID
+ *
+ * 拦截器添加请求头数据
+ */
+@Component
+@Slf4j
+public class SeataXidInterceptor implements RequestInterceptor {
+
+    @Override
+    public void apply(RequestTemplate template) {
+        String xid = RootContext.getXID();
+        if(StringUtils.isNotBlank(xid)){
+            //将当前事务的XID放入请求Header
+            template.header(RootContext.KEY_XID,xid);
+            log.info("set xid["+xid+"] to request Header");
+        }
+    }
+}
+```
+
+服务提供方通过 SeataXidFilter 过滤器获取 XID
+
+```java
+/**
+ * 跨服务调用的事务传播
+ * 把 RootContext XID 通过服务调用传递到服务提供方
+ * 将 HttpServletRequest 中的 Seata XID 绑定到 RootContext 中
+ *
+ * 服务提供方获取 XID
+ *
+ * 过滤器解析请求头数据
+ */
+@Slf4j
+@Component
+public class SeataXidFilter implements Filter {
+    @Override
+    public void init(FilterConfig filterConfig) throws ServletException {
+
+    }
+
+    @Override
+    public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain) throws IOException, ServletException {
+        // 获取请求头 XID
+        String xid = ((HttpServletRequest) request).getHeader(RootContext.KEY_XID);
+        log.info("xid in HttpServletRequest is:[" + xid + "]");
+        boolean bind = false;
+        if(StringUtils.isNotBlank(xid)){
+            RootContext.bind(xid);
+            bind = true;
+            log.info("bind xid[" + xid + "] to RootContext");
+        }
+        try {
+            chain.doFilter(request,response);
+        }finally {
+            if(bind){
+                String unbind = RootContext.unbind();
+                log.info("unbind xid[" + unbind + "] from RootContext");
+            }
+        }
+
+    }
+
+    @Override
+    public void destroy() {
+
+    }
+}
+```
+
+
+
+###### 业务代码
+
+三个模块：订单，库存，账户代码如下：
+
+实体类
+
+```java
+/**
+ * 订单实体类
+ */
+@Data
+@AllArgsConstructor
+public class Order {
+    private Integer id;
+    private String userId;//账户id
+    private String commodityCode;//商品编码
+    private Integer count;
+    private Integer money;
+}
+```
+
+dao层
+
+```java
+@Mapper
+public interface OrderDao {
+    /**
+     * 创建订单
+     *
+     * @param userId
+     * @param commodityCode
+     * @param count
+     * @param money
+     */
+    void create(@Param("userId") String userId, @Param("commodityCode") String commodityCode, @Param("count") Integer count, @Param("money") Integer money);
+
+}
+```
+
+mapper.xml
+
+```xml
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd" >
+<mapper namespace="com.hyd.work.dao.OrderDao" >
+    <!-- 查询映射结果集，此处用不到 -->
+    <resultMap id="BaseResultMap" type="com.hyd.work.entity.Order" >
+        <id column="id" property="id" jdbcType="INTEGER" />
+        <result column="user_id" property="userId" jdbcType="VARCHAR" />
+        <result column="commodity_code" property="commodityCode" jdbcType="VARCHAR" />
+        <result column="count" property="count" jdbcType="INTEGER" />
+        <result column="money" property="money" jdbcType="INTEGER" />
+    </resultMap>
+    <insert id="create">
+        INSERT INTO order_tbl (`user_id`,`commodity_code`,`count`,`money`)
+        VALUES(#{userId}, #{commodityCode}, #{count}, #{money});
+    </insert>
+</mapper>
+
+```
+
+service层
+
+```java
+public interface OrderService {
+    /**
+     * 创建订单
+     * @param userId
+     * @param commodityCode
+     * @param count
+     * @param money
+     */
+    void create(String userId, String commodityCode, Integer count, Integer money);
+}
+```
+
+实现类
+
+```java
+@Service
+@Slf4j
+public class OrderServiceImpl implements OrderService {
+
+    @Autowired
+    private OrderDao orderDao;
+
+    /**
+     * 创建订单
+     * @param userId
+     * @param commodityCode
+     * @param count
+     * @param money
+     */
+    @Override
+    public void create(String userId, String commodityCode, Integer count, Integer money) {
+        log.info("------->创建订单开始order中");
+        orderDao.create(userId, commodityCode, count, money);
+        log.info("------->创建订单结束order中");
+    }
+
+}
+```
+
+controller层
+
+```java
+@RestController
+@RequestMapping("order")
+public class OrderController {
+    @Autowired
+    private OrderService orderService;
+
+    @RequestMapping("create")
+    public String create(@RequestParam("userId") String userId, @RequestParam("commodityCode")String commodityCode, @RequestParam("count")Integer count, @RequestParam("money")Integer money){
+        orderService.create(userId, commodityCode, count, money);
+        return "Create order success";
+    }
+}
+```
+
+启动类
+
+```java
+@SpringBootApplication(exclude = DataSourceAutoConfiguration.class)//使用seata进行数据源代理
+public class OrderServiceApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(OrderServiceApplication.class,args);
+    }
+}
+```
+
+
+
+业务模块代码如下：
+
+openfeign接口层，以AccountApi账户微服务接口为例：
+
+需要`@FeignClient`注解，同时业务中存在多个Feign调用相同Service的接口，配置文件需要配置：`spring.main.allow-bean-definition-overriding=true`。
+
+```java
+package com.hyd.work.feign;
+
+import org.springframework.cloud.openfeign.FeignClient;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+
+@FeignClient(value = "account-service")
+public interface AccountApi {
+    /**
+     * 扣减账户余额
+     * @param userId
+     * @param money
+     * @return
+     */
+    @RequestMapping("/account/decrease")
+    String decrease(@RequestParam("userId") String userId, @RequestParam("money") Integer money);
+
+    /**
+     * 查询指定用户的余额
+     * @param userId
+     * @return
+     */
+    @RequestMapping("/account/getMoneyByUserId")
+    public int getMoneyByUserId(@RequestParam("userId") String userId);
+}
+```
+
+service层实现类
+
+此处发起事务，要在方法上添加`@GlobalTransactional`注解，同时除了事务之外，指定遇到异常也要回滚`rollbackFor = Exception.class`。
+
+```java
+package com.hyd.work.service.impl;
+
+import com.hyd.work.feign.AccountApi;
+import com.hyd.work.feign.OrderApi;
+import com.hyd.work.feign.StorageApi;
+import com.hyd.work.service.BusinessService;
+import io.seata.spring.annotation.GlobalTransactional;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+@Service
+@Slf4j
+public class BusinessServiceImpl implements BusinessService {
+    @Autowired
+    private OrderApi orderApi;
+    @Autowired
+    private StorageApi storageApi;
+    @Autowired
+    private AccountApi accountApi;
+
+    @GlobalTransactional(name = "seata-osa-group",rollbackFor = Exception.class)
+    @Override
+    public void purchase(String userId, String commodityCode, Integer count, Integer money) {
+        log.info("------->交易开始");
+
+        //远程方法 创建订单
+        log.info("------->创建订单开始");
+        orderApi.create(userId, commodityCode, count, money);
+        log.info("------->创建订单结束");
+
+        //远程方法 扣减库存
+        log.info("------->扣减库存开始");
+        storageApi.decrease(commodityCode,count);
+        log.info("------->扣减库存结束");
+
+        //远程方法 扣减账户余额
+        log.info("------->扣减账户开始");
+        accountApi.decrease(userId,money);
+        log.info("------->扣减账户结束");
+
+        //校验数据
+        log.info("------->校验数据开始");
+        if(!validData(userId,commodityCode)){
+            throw new RuntimeException("账户余额或库存不足,执行回滚");
+        }
+        log.info("------->校验数据开始");
+
+        log.info("------->交易结束");
+
+    }
+
+    @Override
+    public boolean validData(String userId,String commodityCode) {
+        if(accountApi.getMoneyByUserId(userId)<0){
+            return false;
+        }
+        if(storageApi.getCountByCode(commodityCode)<0){
+            return false;
+        }
+        return true;
+    }
+}
+```
+
+启动类
+
+添加`@@EnableFeignClients`表明是feign客户端
+
+```java
+@SpringBootApplication
+@EnableFeignClients
+public class BusinessServiceApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(BusinessServiceApplication.class,args);
+    }
+}
+```
+
+
+
+##### 测试
+
+启动nacos，启动seata，启动3+1个服务
+
+启动测试
+
+busineess模块：
+
+```
+Initializing Global Transaction Clients ... 
+Transaction Manager Client is initialized. applicationId[business-service] txServiceGroup[business_group]
+Resource Manager is initialized. applicationId[business-service] txServiceGroup[business_group]
+Global Transaction Clients are initialized. 
+load RegistryProvider[Nacos] extension by class[io.seata.discovery.registry.nacos.NacosRegistryProvider]
+will connect to 192.168.1.103:8091
+will connect to 192.168.1.103:8091
+NettyPool create channel to transactionRole:RMROLE,address:192.168.1.103:8091,msg:< RegisterRMRequest{resourceIds='null', applicationId='business-service', transactionServiceGroup='business_group'} >
+NettyPool create channel to transactionRole:TMROLE,address:192.168.1.103:8091,msg:< RegisterTMRequest{applicationId='business-service', transactionServiceGroup='business_group'} >
+io.seata.core.rpc.netty.RmRpcClient@7f23c47 msgId:1, future :io.seata.core.protocol.MessageFuture@41eb6d0d, body:version=1.0.0,extraData=null,identified=true,resultCode=null,msg=null
+io.seata.core.rpc.netty.TmRpcClient@58fdde9f msgId:1, future :io.seata.core.protocol.MessageFuture@2063aead, body:version=1.0.0,extraData=null,identified=true,resultCode=null,msg=null
+register RM success. server version:1.0.0,channel:[id: 0xe9af0e97, L:/192.168.1.103:55906 - R:/192.168.1.103:8091]
+register success, cost 113 ms, version:1.0.0,role:TMROLE,channel:[id: 0x23f46ed4, L:/192.168.1.103:55907 - R:/192.168.1.103:8091]
+register success, cost 120 ms, version:1.0.0,role:RMROLE,channel:[id: 0xe9af0e97, L:/192.168.1.103:55906 - R:/192.168.1.103:8091]
+```
+
+order模块：
+
+```
+Initializing Global Transaction Clients ... 
+Transaction Manager Client is initialized. applicationId[order-service] txServiceGroup[order_group]
+Resource Manager is initialized. applicationId[order-service] txServiceGroup[order_group]
+Global Transaction Clients are initialized. 
+will connect to 192.168.1.103:8091
+RM will register :jdbc:mysql://localhost:3306/seata_order
+NettyPool create channel to transactionRole:RMROLE,address:192.168.1.103:8091,msg:< RegisterRMRequest{resourceIds='jdbc:mysql://localhost:3306/seata_order', applicationId='order-service', transactionServiceGroup='order_group'} >
+register RM success. server version:1.0.0,channel:[id: 0x9de67760, L:/192.168.1.103:55918 - R:/192.168.1.103:8091]
+register success, cost 94 ms, version:1.0.0,role:RMROLE,channel:[id: 0x9de67760, L:/192.168.1.103:55918 - R:/192.168.1.103:8091]
+will connect to 192.168.1.103:8091
+NettyPool create channel to transactionRole:TMROLE,address:192.168.1.103:8091,msg:< RegisterTMRequest{applicationId='order-service', transactionServiceGroup='order_group'} >
+register success, cost 5 ms, version:1.0.0,role:TMROLE,channel:[id: 0xc9ec150c, L:/192.168.1.103:55952 - R:/192.168.1.103:8091]
+io.seata.core.rpc.netty.RmRpcClient@3d433124 msgId:2, body:UndoLogDeleteRequest{resourceId='jdbc:mysql://localhost:3306/seata_order', saveDays=7, branchType=AT}
+```
+
+storage模块：
+
+```
+Initializing Global Transaction Clients ... 
+Transaction Manager Client is initialized. applicationId[storage-service] txServiceGroup[storage_group]
+Resource Manager is initialized. applicationId[storage-service] txServiceGroup[storage_group]
+Global Transaction Clients are initialized. 
+will connect to 192.168.1.103:8091
+RM will register :jdbc:mysql://localhost:3306/seata_storage
+NettyPool create channel to transactionRole:RMROLE,address:192.168.1.103:8091,msg:< RegisterRMRequest{resourceIds='jdbc:mysql://localhost:3306/seata_storage', applicationId='storage-service', transactionServiceGroup='storage_group'} >
+register RM success. server version:1.0.0,channel:[id: 0xbeeb8cbe, L:/192.168.1.103:55936 - R:/192.168.1.103:8091]
+register success, cost 42 ms, version:1.0.0,role:RMROLE,channel:[id: 0xbeeb8cbe, L:/192.168.1.103:55936 - R:/192.168.1.103:8091]
+will connect to 192.168.1.103:8091
+NettyPool create channel to transactionRole:TMROLE,address:192.168.1.103:8091,msg:< RegisterTMRequest{applicationId='storage-service', transactionServiceGroup='storage_group'} >
+register success, cost 4 ms, version:1.0.0,role:TMROLE,channel:[id: 0xf3cb6365, L:/192.168.1.103:55962 - R:/192.168.1.103:8091]
+io.seata.core.rpc.netty.RmRpcClient@86d897a msgId:3, body:UndoLogDeleteRequest{resourceId='jdbc:mysql://localhost:3306/seata_storage', saveDays=7, branchType=AT}
+```
+
+account模块：
+
+```
+Initializing Global Transaction Clients ... 
+Transaction Manager Client is initialized. applicationId[account-service] txServiceGroup[account_group]
+Resource Manager is initialized. applicationId[account-service] txServiceGroup[account_group]
+Global Transaction Clients are initialized. 
+will connect to 192.168.1.103:8091
+RM will register :jdbc:mysql://localhost:3306/seata_account
+NettyPool create channel to transactionRole:RMROLE,address:192.168.1.103:8091,msg:< RegisterRMRequest{resourceIds='jdbc:mysql://localhost:3306/seata_account', applicationId='account-service', transactionServiceGroup='account_group'} >
+register RM success. server version:1.0.0,channel:[id: 0x6b005bd2, L:/192.168.1.103:55949 - R:/192.168.1.103:8091]
+register success, cost 40 ms, version:1.0.0,role:RMROLE,channel:[id: 0x6b005bd2, L:/192.168.1.103:55949 - R:/192.168.1.103:8091]
+will connect to 192.168.1.103:8091
+NettyPool create channel to transactionRole:TMROLE,address:192.168.1.103:8091,msg:< RegisterTMRequest{applicationId='account-service', transactionServiceGroup='account_group'} >
+register success, cost 4 ms, version:1.0.0,role:TMROLE,channel:[id: 0xe68cf540, L:/192.168.1.103:55964 - R:/192.168.1.103:8091]
+io.seata.core.rpc.netty.RmRpcClient@7eec2833 msgId:1, body:UndoLogDeleteRequest{resourceId='jdbc:mysql://localhost:3306/seata_account', saveDays=7, branchType=AT}
+```
+
+seata-server日志：
+
+```
+-checkAuth
+for client:192.168.1.103:55907,vgroup:business_group,applicationId:business-service
+-rm register success,message:RegisterRMRequest{resourceIds='null', applicationId='business-service', transactionServiceGroup='business_group'},channel:[id: 0xb11993e9, L:/192.168.1.103:8091 - R:/192.168.1.103:55906]
+-rm register success,message:RegisterRMRequest{resourceIds='jdbc:mysql://localhost:3306/seata_order', applicationId='order-service', transactionServiceGroup='order_group'},channel:[id: 0x53167139, L:/192.168.1.103:8091 - R:/192.168.1.103:55918]
+-rm register success,message:RegisterRMRequest{resourceIds='jdbc:mysql://localhost:3306/seata_storage', applicationId='storage-service', transactionServiceGroup='storage_group'},channel:[id: 0x00eed05d, L:/192.168.1.103:8091 - R:/192.168.1.103:55936]
+-rm register success,message:RegisterRMRequest{resourceIds='jdbc:mysql://localhost:3306/seata_account', applicationId='account-service', transactionServiceGroup='account_group'},channel:[id: 0xf1f8b4d4, L:/192.168.1.103:8091 - R:/192.168.1.103:55949]
+-checkAuth
+for client:192.168.1.103:55952,vgroup:order_group,applicationId:order-service
+-checkAuth
+for client:192.168.1.103:55962,vgroup:storage_group,applicationId:storage-service
+-checkAuth
+for client:192.168.1.103:55964,vgroup:account_group,applicationId:account-service
+```
+
+可以看到成功注册日志。
+
+
+
+测试正常调用
+
+```
+使用seata-all，正常调用
+curl -X GET http://localhost/business/purchase?userId=user-01&commodityCode=product-1&count=1&money=1
+
+
+
+# business-service模块
+2021-06-06 08:35:57.765  INFO 5616 --- [p-nio-80-exec-5] com.hyd.work.filter.SeataXidFilter       : xid in HttpServletRequest is:[null]
+2021-06-06 08:35:57.766 DEBUG 5616 --- [p-nio-80-exec-5] i.s.core.rpc.netty.AbstractRpcRemoting   : offer message: timeout=60000,transactionName=seata-osa-group
+2021-06-06 08:35:57.767 DEBUG 5616 --- [geSend_TMROLE_1] i.s.core.rpc.netty.AbstractRpcRemoting   : write message:SeataMergeMessage timeout=60000,transactionName=seata-osa-group
+, channel:[id: 0xd65e8458, L:/192.168.1.103:62800 - R:/192.168.1.103:8091],active?true,writable?true,isopen?true
+2021-06-06 08:35:57.771 DEBUG 5616 --- [p-nio-80-exec-5] io.seata.core.context.RootContext        : bind 192.168.1.103:8091:2076666506
+2021-06-06 08:35:57.771  INFO 5616 --- [p-nio-80-exec-5] i.seata.tm.api.DefaultGlobalTransaction  : Begin new global transaction [192.168.1.103:8091:2076666506]
+2021-06-06 08:35:57.771  INFO 5616 --- [p-nio-80-exec-5] c.h.w.service.impl.BusinessServiceImpl   : ------->交易开始
+2021-06-06 08:35:57.771  INFO 5616 --- [p-nio-80-exec-5] c.h.w.service.impl.BusinessServiceImpl   : ------->创建订单开始
+2021-06-06 08:35:57.772  INFO 5616 --- [p-nio-80-exec-5] c.h.w.interceptor.SeataXidInterceptor    : set xid[192.168.1.103:8091:2076666506] to request Header
+2021-06-06 08:35:57.798  INFO 5616 --- [p-nio-80-exec-5] c.h.w.service.impl.BusinessServiceImpl   : ------->创建订单结束
+2021-06-06 08:35:57.798  INFO 5616 --- [p-nio-80-exec-5] c.h.w.service.impl.BusinessServiceImpl   : ------->扣减库存开始
+2021-06-06 08:35:57.798  INFO 5616 --- [p-nio-80-exec-5] c.h.w.interceptor.SeataXidInterceptor    : set xid[192.168.1.103:8091:2076666506] to request Header
+2021-06-06 08:35:57.829  INFO 5616 --- [p-nio-80-exec-5] c.h.w.service.impl.BusinessServiceImpl   : ------->扣减库存结束
+2021-06-06 08:35:57.829  INFO 5616 --- [p-nio-80-exec-5] c.h.w.service.impl.BusinessServiceImpl   : ------->扣减账户开始
+2021-06-06 08:35:57.830  INFO 5616 --- [p-nio-80-exec-5] c.h.w.interceptor.SeataXidInterceptor    : set xid[192.168.1.103:8091:2076666506] to request Header
+2021-06-06 08:35:57.860  INFO 5616 --- [p-nio-80-exec-5] c.h.w.service.impl.BusinessServiceImpl   : ------->扣减账户结束
+2021-06-06 08:35:57.860  INFO 5616 --- [p-nio-80-exec-5] c.h.w.service.impl.BusinessServiceImpl   : ------->校验数据开始
+2021-06-06 08:35:57.860  INFO 5616 --- [p-nio-80-exec-5] c.h.w.interceptor.SeataXidInterceptor    : set xid[192.168.1.103:8091:2076666506] to request Header
+2021-06-06 08:35:57.865  INFO 5616 --- [p-nio-80-exec-5] c.h.w.interceptor.SeataXidInterceptor    : set xid[192.168.1.103:8091:2076666506] to request Header
+2021-06-06 08:35:57.870  INFO 5616 --- [p-nio-80-exec-5] c.h.w.service.impl.BusinessServiceImpl   : ------->校验数据开始
+2021-06-06 08:35:57.871  INFO 5616 --- [p-nio-80-exec-5] c.h.w.service.impl.BusinessServiceImpl   : ------->交易结束
+2021-06-06 08:35:57.871 DEBUG 5616 --- [p-nio-80-exec-5] i.s.core.rpc.netty.AbstractRpcRemoting   : offer message: xid=192.168.1.103:8091:2076666506,extraData=null
+2021-06-06 08:35:57.871 DEBUG 5616 --- [geSend_TMROLE_1] i.s.core.rpc.netty.AbstractRpcRemoting   : write message:SeataMergeMessage xid=192.168.1.103:8091:2076666506,extraData=null
+, channel:[id: 0xd65e8458, L:/192.168.1.103:62800 - R:/192.168.1.103:8091],active?true,writable?true,isopen?true
+2021-06-06 08:35:57.883 DEBUG 5616 --- [p-nio-80-exec-5] io.seata.core.context.RootContext        : unbind 192.168.1.103:8091:2076666506 
+2021-06-06 08:35:57.883  INFO 5616 --- [p-nio-80-exec-5] i.seata.tm.api.DefaultGlobalTransaction  : [192.168.1.103:8091:2076666506] commit status: Committed
+
+
+
+# order-service模块
+2021-06-06 08:35:57.774  INFO 11712 --- [nio-8001-exec-2] com.hyd.work.filter.SeataXidFilter       : xid in HttpServletRequest is:[192.168.1.103:8091:2076666506]
+2021-06-06 08:35:57.774 DEBUG 11712 --- [nio-8001-exec-2] io.seata.core.context.RootContext        : bind 192.168.1.103:8091:2076666506
+2021-06-06 08:35:57.774  INFO 11712 --- [nio-8001-exec-2] com.hyd.work.filter.SeataXidFilter       : bind xid[192.168.1.103:8091:2076666506] to RootContext
+2021-06-06 08:35:57.775  INFO 11712 --- [nio-8001-exec-2] c.h.work.service.impl.OrderServiceImpl   : ------->创建订单开始order中
+2021-06-06 08:35:57.779 DEBUG 11712 --- [nio-8001-exec-2] i.s.core.rpc.netty.AbstractRpcRemoting   : offer message: xid=192.168.1.103:8091:2076666506,branchType=AT,resourceId=jdbc:mysql://localhost:3306/seata_order,lockKey=order_tbl:31
+2021-06-06 08:35:57.779 DEBUG 11712 --- [geSend_RMROLE_1] i.s.core.rpc.netty.AbstractRpcRemoting   : write message:SeataMergeMessage xid=192.168.1.103:8091:2076666506,branchType=AT,resourceId=jdbc:mysql://localhost:3306/seata_order,lockKey=order_tbl:31
+, channel:[id: 0xefe82473, L:/192.168.1.103:62926 - R:/192.168.1.103:8091],active?true,writable?true,isopen?true
+2021-06-06 08:35:57.786 DEBUG 11712 --- [nio-8001-exec-2] i.s.r.d.undo.AbstractUndoLogManager      : Flushing UNDO LOG: {"@class":"io.seata.rm.datasource.undo.BranchUndoLog","xid":"192.168.1.103:8091:2076666506","branchId":2076666508,"sqlUndoLogs":["java.util.ArrayList",[{"@class":"io.seata.rm.datasource.undo.SQLUndoLog","sqlType":"INSERT","tableName":"order_tbl","beforeImage":{"@class":"io.seata.rm.datasource.sql.struct.TableRecords$EmptyTableRecords","tableName":"order_tbl","rows":["java.util.ArrayList",[]]},"afterImage":{"@class":"io.seata.rm.datasource.sql.struct.TableRecords","tableName":"order_tbl","rows":["java.util.ArrayList",[{"@class":"io.seata.rm.datasource.sql.struct.Row","fields":["java.util.ArrayList",[{"@class":"io.seata.rm.datasource.sql.struct.Field","name":"id","keyType":"PrimaryKey","type":4,"value":31},{"@class":"io.seata.rm.datasource.sql.struct.Field","name":"user_id","keyType":"NULL","type":12,"value":"user-01"},{"@class":"io.seata.rm.datasource.sql.struct.Field","name":"commodity_code","keyType":"NULL","type":12,"value":"product-1"},{"@class":"io.seata.rm.datasource.sql.struct.Field","name":"count","keyType":"NULL","type":4,"value":1},{"@class":"io.seata.rm.datasource.sql.struct.Field","name":"money","keyType":"NULL","type":4,"value":1}]]}]]}}]]}
+2021-06-06 08:35:57.789 DEBUG 11712 --- [nio-8001-exec-2] i.s.core.rpc.netty.AbstractRpcRemoting   : offer message: xid=192.168.1.103:8091:2076666506,branchId=2076666508,resourceId=null,status=PhaseOne_Done,applicationData=null
+2021-06-06 08:35:57.789 DEBUG 11712 --- [geSend_RMROLE_1] i.s.core.rpc.netty.AbstractRpcRemoting   : write message:SeataMergeMessage xid=192.168.1.103:8091:2076666506,branchId=2076666508,resourceId=null,status=PhaseOne_Done,applicationData=null
+, channel:[id: 0xefe82473, L:/192.168.1.103:62926 - R:/192.168.1.103:8091],active?true,writable?true,isopen?true
+2021-06-06 08:35:57.796  INFO 11712 --- [nio-8001-exec-2] c.h.work.service.impl.OrderServiceImpl   : ------->创建订单结束order中
+2021-06-06 08:35:57.797 DEBUG 11712 --- [nio-8001-exec-2] io.seata.core.context.RootContext        : unbind 192.168.1.103:8091:2076666506 
+2021-06-06 08:35:57.798  INFO 11712 --- [nio-8001-exec-2] com.hyd.work.filter.SeataXidFilter       : unbind xid[192.168.1.103:8091:2076666506] from RootContext
+2021-06-06 08:35:58.337 DEBUG 11712 --- [lector_RMROLE_1] i.s.core.rpc.netty.AbstractRpcRemoting   : io.seata.core.rpc.netty.RmRpcClient@75190b4e msgId:7, body:xid=192.168.1.103:8091:2076666506,branchId=2076666508,branchType=AT,resourceId=jdbc:mysql://localhost:3306/seata_order,applicationData=null
+2021-06-06 08:35:58.337  INFO 11712 --- [tch_RMROLE_1_32] i.s.core.rpc.netty.RmMessageListener     : onMessage:xid=192.168.1.103:8091:2076666506,branchId=2076666508,branchType=AT,resourceId=jdbc:mysql://localhost:3306/seata_order,applicationData=null
+2021-06-06 08:35:58.337  INFO 11712 --- [tch_RMROLE_1_32] io.seata.rm.AbstractRMHandler            : Branch committing: 192.168.1.103:8091:2076666506 2076666508 jdbc:mysql://localhost:3306/seata_order null
+2021-06-06 08:35:58.337  INFO 11712 --- [tch_RMROLE_1_32] io.seata.rm.AbstractRMHandler            : Branch commit result: PhaseTwo_Committed
+2021-06-06 08:35:58.337 DEBUG 11712 --- [tch_RMROLE_1_32] i.s.core.rpc.netty.AbstractRpcRemoting   : send response:xid=192.168.1.103:8091:2076666506,branchId=2076666508,branchStatus=PhaseTwo_Committed,result code =Success,getMsg =null,channel:[id: 0xefe82473, L:/192.168.1.103:62926 - R:/192.168.1.103:8091]
+2021-06-06 08:35:58.543 DEBUG 11712 --- [  AsyncWorker_1] i.s.r.d.undo.AbstractUndoLogManager      : batch delete undo log size 1
+
+
+
+# storage-service模块
+2021-06-06 08:35:57.800  INFO 4508 --- [nio-8002-exec-4] com.hyd.work.filter.SeataXidFilter       : xid in HttpServletRequest is:[192.168.1.103:8091:2076666506]
+2021-06-06 08:35:57.801 DEBUG 4508 --- [nio-8002-exec-4] io.seata.core.context.RootContext        : bind 192.168.1.103:8091:2076666506
+2021-06-06 08:35:57.801  INFO 4508 --- [nio-8002-exec-4] com.hyd.work.filter.SeataXidFilter       : bind xid[192.168.1.103:8091:2076666506] to RootContext
+2021-06-06 08:35:57.801  INFO 4508 --- [nio-8002-exec-4] c.h.w.service.impl.StorageServiceImpl    : ------->扣减库存开始storage中
+2021-06-06 08:35:57.807 DEBUG 4508 --- [nio-8002-exec-4] i.s.core.rpc.netty.AbstractRpcRemoting   : offer message: xid=192.168.1.103:8091:2076666506,branchType=AT,resourceId=jdbc:mysql://localhost:3306/seata_storage,lockKey=storage_tbl:1
+2021-06-06 08:35:57.808 DEBUG 4508 --- [geSend_RMROLE_1] i.s.core.rpc.netty.AbstractRpcRemoting   : write message:SeataMergeMessage xid=192.168.1.103:8091:2076666506,branchType=AT,resourceId=jdbc:mysql://localhost:3306/seata_storage,lockKey=storage_tbl:1
+, channel:[id: 0x565684b6, L:/192.168.1.103:62828 - R:/192.168.1.103:8091],active?true,writable?true,isopen?true
+2021-06-06 08:35:57.816 DEBUG 4508 --- [nio-8002-exec-4] i.s.r.d.undo.AbstractUndoLogManager      : Flushing UNDO LOG: {"@class":"io.seata.rm.datasource.undo.BranchUndoLog","xid":"192.168.1.103:8091:2076666506","branchId":2076666511,"sqlUndoLogs":["java.util.ArrayList",[{"@class":"io.seata.rm.datasource.undo.SQLUndoLog","sqlType":"UPDATE","tableName":"storage_tbl","beforeImage":{"@class":"io.seata.rm.datasource.sql.struct.TableRecords","tableName":"storage_tbl","rows":["java.util.ArrayList",[{"@class":"io.seata.rm.datasource.sql.struct.Row","fields":["java.util.ArrayList",[{"@class":"io.seata.rm.datasource.sql.struct.Field","name":"id","keyType":"PrimaryKey","type":4,"value":1},{"@class":"io.seata.rm.datasource.sql.struct.Field","name":"count","keyType":"NULL","type":4,"value":99}]]}]]},"afterImage":{"@class":"io.seata.rm.datasource.sql.struct.TableRecords","tableName":"storage_tbl","rows":["java.util.ArrayList",[{"@class":"io.seata.rm.datasource.sql.struct.Row","fields":["java.util.ArrayList",[{"@class":"io.seata.rm.datasource.sql.struct.Field","name":"id","keyType":"PrimaryKey","type":4,"value":1},{"@class":"io.seata.rm.datasource.sql.struct.Field","name":"count","keyType":"NULL","type":4,"value":98}]]}]]}}]]}
+2021-06-06 08:35:57.820 DEBUG 4508 --- [nio-8002-exec-4] i.s.core.rpc.netty.AbstractRpcRemoting   : offer message: xid=192.168.1.103:8091:2076666506,branchId=2076666511,resourceId=null,status=PhaseOne_Done,applicationData=null
+2021-06-06 08:35:57.820 DEBUG 4508 --- [geSend_RMROLE_1] i.s.core.rpc.netty.AbstractRpcRemoting   : write message:SeataMergeMessage xid=192.168.1.103:8091:2076666506,branchId=2076666511,resourceId=null,status=PhaseOne_Done,applicationData=null
+, channel:[id: 0x565684b6, L:/192.168.1.103:62828 - R:/192.168.1.103:8091],active?true,writable?true,isopen?true
+2021-06-06 08:35:57.828  INFO 4508 --- [nio-8002-exec-4] c.h.w.service.impl.StorageServiceImpl    : ------->扣减库存结束storage中
+2021-06-06 08:35:57.829 DEBUG 4508 --- [nio-8002-exec-4] io.seata.core.context.RootContext        : unbind 192.168.1.103:8091:2076666506 
+2021-06-06 08:35:57.829  INFO 4508 --- [nio-8002-exec-4] com.hyd.work.filter.SeataXidFilter       : unbind xid[192.168.1.103:8091:2076666506] from RootContext
+2021-06-06 08:35:57.867  INFO 4508 --- [nio-8002-exec-5] com.hyd.work.filter.SeataXidFilter       : xid in HttpServletRequest is:[192.168.1.103:8091:2076666506]
+2021-06-06 08:35:57.867 DEBUG 4508 --- [nio-8002-exec-5] io.seata.core.context.RootContext        : bind 192.168.1.103:8091:2076666506
+2021-06-06 08:35:57.867  INFO 4508 --- [nio-8002-exec-5] com.hyd.work.filter.SeataXidFilter       : bind xid[192.168.1.103:8091:2076666506] to RootContext
+2021-06-06 08:35:57.870 DEBUG 4508 --- [nio-8002-exec-5] io.seata.core.context.RootContext        : unbind 192.168.1.103:8091:2076666506 
+2021-06-06 08:35:57.870  INFO 4508 --- [nio-8002-exec-5] com.hyd.work.filter.SeataXidFilter       : unbind xid[192.168.1.103:8091:2076666506] from RootContext
+2021-06-06 08:35:58.337 DEBUG 4508 --- [lector_RMROLE_1] i.s.core.rpc.netty.AbstractRpcRemoting   : io.seata.core.rpc.netty.RmRpcClient@7d9975ee msgId:8, body:xid=192.168.1.103:8091:2076666506,branchId=2076666511,branchType=AT,resourceId=jdbc:mysql://localhost:3306/seata_storage,applicationData=null
+2021-06-06 08:35:58.337  INFO 4508 --- [tch_RMROLE_1_32] i.s.core.rpc.netty.RmMessageListener     : onMessage:xid=192.168.1.103:8091:2076666506,branchId=2076666511,branchType=AT,resourceId=jdbc:mysql://localhost:3306/seata_storage,applicationData=null
+2021-06-06 08:35:58.337  INFO 4508 --- [tch_RMROLE_1_32] io.seata.rm.AbstractRMHandler            : Branch committing: 192.168.1.103:8091:2076666506 2076666511 jdbc:mysql://localhost:3306/seata_storage null
+2021-06-06 08:35:58.337  INFO 4508 --- [tch_RMROLE_1_32] io.seata.rm.AbstractRMHandler            : Branch commit result: PhaseTwo_Committed
+2021-06-06 08:35:58.337 DEBUG 4508 --- [tch_RMROLE_1_32] i.s.core.rpc.netty.AbstractRpcRemoting   : send response:xid=192.168.1.103:8091:2076666506,branchId=2076666511,branchStatus=PhaseTwo_Committed,result code =Success,getMsg =null,channel:[id: 0x565684b6, L:/192.168.1.103:62828 - R:/192.168.1.103:8091]
+2021-06-06 08:35:58.902 DEBUG 4508 --- [  AsyncWorker_1] i.s.r.d.undo.AbstractUndoLogManager      : batch delete undo log size 1
+
+
+
+# account-service模块
+2021-06-06 08:35:57.832  INFO 19292 --- [nio-8003-exec-3] com.hyd.work.filter.SeataXidFilter       : xid in HttpServletRequest is:[192.168.1.103:8091:2076666506]
+2021-06-06 08:35:57.832 DEBUG 19292 --- [nio-8003-exec-3] io.seata.core.context.RootContext        : bind 192.168.1.103:8091:2076666506
+2021-06-06 08:35:57.832  INFO 19292 --- [nio-8003-exec-3] com.hyd.work.filter.SeataXidFilter       : bind xid[192.168.1.103:8091:2076666506] to RootContext
+2021-06-06 08:35:57.832  INFO 19292 --- [nio-8003-exec-3] c.h.w.service.impl.AccountServiceImpl    : ------->扣减账户开始account中
+2021-06-06 08:35:57.839 DEBUG 19292 --- [nio-8003-exec-3] i.s.core.rpc.netty.AbstractRpcRemoting   : offer message: xid=192.168.1.103:8091:2076666506,branchType=AT,resourceId=jdbc:mysql://localhost:3306/seata_account,lockKey=account_tbl:1
+2021-06-06 08:35:57.840 DEBUG 19292 --- [geSend_RMROLE_1] i.s.core.rpc.netty.AbstractRpcRemoting   : write message:SeataMergeMessage xid=192.168.1.103:8091:2076666506,branchType=AT,resourceId=jdbc:mysql://localhost:3306/seata_account,lockKey=account_tbl:1
+, channel:[id: 0x2980bd8f, L:/192.168.1.103:62877 - R:/192.168.1.103:8091],active?true,writable?true,isopen?true
+2021-06-06 08:35:57.848 DEBUG 19292 --- [nio-8003-exec-3] i.s.r.d.undo.AbstractUndoLogManager      : Flushing UNDO LOG: {"@class":"io.seata.rm.datasource.undo.BranchUndoLog","xid":"192.168.1.103:8091:2076666506","branchId":2076666514,"sqlUndoLogs":["java.util.ArrayList",[{"@class":"io.seata.rm.datasource.undo.SQLUndoLog","sqlType":"UPDATE","tableName":"account_tbl","beforeImage":{"@class":"io.seata.rm.datasource.sql.struct.TableRecords","tableName":"account_tbl","rows":["java.util.ArrayList",[{"@class":"io.seata.rm.datasource.sql.struct.Row","fields":["java.util.ArrayList",[{"@class":"io.seata.rm.datasource.sql.struct.Field","name":"id","keyType":"PrimaryKey","type":4,"value":1},{"@class":"io.seata.rm.datasource.sql.struct.Field","name":"money","keyType":"NULL","type":4,"value":99}]]}]]},"afterImage":{"@class":"io.seata.rm.datasource.sql.struct.TableRecords","tableName":"account_tbl","rows":["java.util.ArrayList",[{"@class":"io.seata.rm.datasource.sql.struct.Row","fields":["java.util.ArrayList",[{"@class":"io.seata.rm.datasource.sql.struct.Field","name":"id","keyType":"PrimaryKey","type":4,"value":1},{"@class":"io.seata.rm.datasource.sql.struct.Field","name":"money","keyType":"NULL","type":4,"value":98}]]}]]}}]]}
+2021-06-06 08:35:57.851 DEBUG 19292 --- [nio-8003-exec-3] i.s.core.rpc.netty.AbstractRpcRemoting   : offer message: xid=192.168.1.103:8091:2076666506,branchId=2076666514,resourceId=null,status=PhaseOne_Done,applicationData=null
+2021-06-06 08:35:57.851 DEBUG 19292 --- [geSend_RMROLE_1] i.s.core.rpc.netty.AbstractRpcRemoting   : write message:SeataMergeMessage xid=192.168.1.103:8091:2076666506,branchId=2076666514,resourceId=null,status=PhaseOne_Done,applicationData=null
+, channel:[id: 0x2980bd8f, L:/192.168.1.103:62877 - R:/192.168.1.103:8091],active?true,writable?true,isopen?true
+2021-06-06 08:35:57.857  INFO 19292 --- [nio-8003-exec-3] c.h.w.service.impl.AccountServiceImpl    : ------->扣减账户结束account中
+2021-06-06 08:35:57.860 DEBUG 19292 --- [nio-8003-exec-3] io.seata.core.context.RootContext        : unbind 192.168.1.103:8091:2076666506 
+2021-06-06 08:35:57.860  INFO 19292 --- [nio-8003-exec-3] com.hyd.work.filter.SeataXidFilter       : unbind xid[192.168.1.103:8091:2076666506] from RootContext
+2021-06-06 08:35:57.862  INFO 19292 --- [nio-8003-exec-4] com.hyd.work.filter.SeataXidFilter       : xid in HttpServletRequest is:[192.168.1.103:8091:2076666506]
+2021-06-06 08:35:57.862 DEBUG 19292 --- [nio-8003-exec-4] io.seata.core.context.RootContext        : bind 192.168.1.103:8091:2076666506
+2021-06-06 08:35:57.862  INFO 19292 --- [nio-8003-exec-4] com.hyd.work.filter.SeataXidFilter       : bind xid[192.168.1.103:8091:2076666506] to RootContext
+2021-06-06 08:35:57.865 DEBUG 19292 --- [nio-8003-exec-4] io.seata.core.context.RootContext        : unbind 192.168.1.103:8091:2076666506 
+2021-06-06 08:35:57.865  INFO 19292 --- [nio-8003-exec-4] com.hyd.work.filter.SeataXidFilter       : unbind xid[192.168.1.103:8091:2076666506] from RootContext
+2021-06-06 08:35:58.353 DEBUG 19292 --- [lector_RMROLE_1] i.s.core.rpc.netty.AbstractRpcRemoting   : io.seata.core.rpc.netty.RmRpcClient@5c773314 msgId:9, body:xid=192.168.1.103:8091:2076666506,branchId=2076666514,branchType=AT,resourceId=jdbc:mysql://localhost:3306/seata_account,applicationData=null
+2021-06-06 08:35:58.353  INFO 19292 --- [tch_RMROLE_1_32] i.s.core.rpc.netty.RmMessageListener     : onMessage:xid=192.168.1.103:8091:2076666506,branchId=2076666514,branchType=AT,resourceId=jdbc:mysql://localhost:3306/seata_account,applicationData=null
+2021-06-06 08:35:58.353  INFO 19292 --- [tch_RMROLE_1_32] io.seata.rm.AbstractRMHandler            : Branch committing: 192.168.1.103:8091:2076666506 2076666514 jdbc:mysql://localhost:3306/seata_account null
+2021-06-06 08:35:58.353  INFO 19292 --- [tch_RMROLE_1_32] io.seata.rm.AbstractRMHandler            : Branch commit result: PhaseTwo_Committed
+2021-06-06 08:35:58.353 DEBUG 19292 --- [tch_RMROLE_1_32] i.s.core.rpc.netty.AbstractRpcRemoting   : send response:xid=192.168.1.103:8091:2076666506,branchId=2076666514,branchStatus=PhaseTwo_Committed,result code =Success,getMsg =null,channel:[id: 0x2980bd8f, L:/192.168.1.103:62877 - R:/192.168.1.103:8091]
+2021-06-06 08:35:59.093 DEBUG 19292 --- [  AsyncWorker_1] i.s.r.d.undo.AbstractUndoLogManager      : batch delete undo log size 1
+
+
+
+# seata-server日志
+2021-06-06 08:35:57.768 INFO [batchLoggerPrint_1]io.seata.core.rpc.DefaultServerMessageListenerImpl.run:205 -SeataMergeMessage timeout=60000,transactionName=seata-osa-group
+,clientIp:192.168.1.103,vgroup:projectA
+2021-06-06 08:35:57.770 INFO [ServerHandlerThread_1_500]io.seata.server.coordinator.DefaultCore.begin:154 -Successfully begin global transaction xid = 192.168.1.103:8091:2076666506
+2021-06-06 08:35:57.780 INFO [batchLoggerPrint_1]io.seata.core.rpc.DefaultServerMessageListenerImpl.run:205 -SeataMergeMessage xid=192.168.1.103:8091:2076666506,branchType=AT,resourceId=jdbc:mysql://localhost:3306/seata_order,lockKey=order_tbl:31
+,clientIp:192.168.1.103,vgroup:projectA
+2021-06-06 08:35:57.785 INFO [ServerHandlerThread_1_500]io.seata.server.coordinator.DefaultCore.lambda$branchRegister$0:98 -Successfully
+register branch xid = 192.168.1.103:8091:2076666506, branchId = 2076666508
+2021-06-06 08:35:57.790 INFO [batchLoggerPrint_1]io.seata.core.rpc.DefaultServerMessageListenerImpl.run:205 -SeataMergeMessage xid=192.168.1.103:8091:2076666506,branchId=2076666508,resourceId=null,status=PhaseOne_Done,applicationData=null
+,clientIp:192.168.1.103,vgroup:projectA
+2021-06-06 08:35:57.794 INFO [ServerHandlerThread_1_500]io.seata.server.coordinator.DefaultCore.branchReport:126 -Successfully branch report xid = 192.168.1.103:8091:2076666506, branchId = 2076666508
+2021-06-06 08:35:57.809 INFO [batchLoggerPrint_1]io.seata.core.rpc.DefaultServerMessageListenerImpl.run:205 -SeataMergeMessage xid=192.168.1.103:8091:2076666506,branchType=AT,resourceId=jdbc:mysql://localhost:3306/seata_storage,lockKey=storage_tbl:1
+,clientIp:192.168.1.103,vgroup:projectA
+2021-06-06 08:35:57.814 INFO [ServerHandlerThread_1_500]io.seata.server.coordinator.DefaultCore.lambda$branchRegister$0:98 -Successfully
+register branch xid = 192.168.1.103:8091:2076666506, branchId = 2076666511
+2021-06-06 08:35:57.821 INFO [batchLoggerPrint_1]io.seata.core.rpc.DefaultServerMessageListenerImpl.run:205 -SeataMergeMessage xid=192.168.1.103:8091:2076666506,branchId=2076666511,resourceId=null,status=PhaseOne_Done,applicationData=null
+,clientIp:192.168.1.103,vgroup:projectA
+2021-06-06 08:35:57.825 INFO [ServerHandlerThread_1_500]io.seata.server.coordinator.DefaultCore.branchReport:126 -Successfully branch report xid = 192.168.1.103:8091:2076666506, branchId = 2076666511
+2021-06-06 08:35:57.841 INFO [batchLoggerPrint_1]io.seata.core.rpc.DefaultServerMessageListenerImpl.run:205 -SeataMergeMessage xid=192.168.1.103:8091:2076666506,branchType=AT,resourceId=jdbc:mysql://localhost:3306/seata_account,lockKey=account_tbl:1
+,clientIp:192.168.1.103,vgroup:projectA
+2021-06-06 08:35:57.846 INFO [ServerHandlerThread_1_500]io.seata.server.coordinator.DefaultCore.lambda$branchRegister$0:98 -Successfully
+register branch xid = 192.168.1.103:8091:2076666506, branchId = 2076666514
+2021-06-06 08:35:57.852 INFO [batchLoggerPrint_1]io.seata.core.rpc.DefaultServerMessageListenerImpl.run:205 -SeataMergeMessage xid=192.168.1.103:8091:2076666506,branchId=2076666514,resourceId=null,status=PhaseOne_Done,applicationData=null
+,clientIp:192.168.1.103,vgroup:projectA
+2021-06-06 08:35:57.855 INFO [ServerHandlerThread_1_500]io.seata.server.coordinator.DefaultCore.branchReport:126 -Successfully branch report xid = 192.168.1.103:8091:2076666506, branchId = 2076666514
+2021-06-06 08:35:57.873 INFO [batchLoggerPrint_1]io.seata.core.rpc.DefaultServerMessageListenerImpl.run:205 -SeataMergeMessage xid=192.168.1.103:8091:2076666506,extraData=null
+,clientIp:192.168.1.103,vgroup:projectA
+2021-06-06 08:35:58.353 INFO [AsyncCommitting_1]io.seata.server.coordinator.DefaultCore.doGlobalCommit:316 -Global[192.168.1.103:8091:2076666506] committing is successfully done.
+```
+
+异常调用
+
+```
+使用seata-all，异常调用
+curl -X GET http://localhost/business/purchase?userId=user-01&commodityCode=product-2&count=1&money=1
+
+
+
+# business-service模块
+2021-06-06 08:43:12.631  INFO 5616 --- [p-nio-80-exec-7] com.hyd.work.filter.SeataXidFilter       : xid in HttpServletRequest is:[null]
+2021-06-06 08:43:12.633 DEBUG 5616 --- [p-nio-80-exec-7] i.s.core.rpc.netty.AbstractRpcRemoting   : offer message: timeout=60000,transactionName=seata-osa-group
+2021-06-06 08:43:12.633 DEBUG 5616 --- [geSend_TMROLE_1] i.s.core.rpc.netty.AbstractRpcRemoting   : write message:SeataMergeMessage timeout=60000,transactionName=seata-osa-group
+, channel:[id: 0xd65e8458, L:/192.168.1.103:62800 - R:/192.168.1.103:8091],active?true,writable?true,isopen?true
+2021-06-06 08:43:12.637 DEBUG 5616 --- [p-nio-80-exec-7] io.seata.core.context.RootContext        : bind 192.168.1.103:8091:2076666522
+2021-06-06 08:43:12.638  INFO 5616 --- [p-nio-80-exec-7] i.seata.tm.api.DefaultGlobalTransaction  : Begin new global transaction [192.168.1.103:8091:2076666522]
+2021-06-06 08:43:12.638  INFO 5616 --- [p-nio-80-exec-7] c.h.w.service.impl.BusinessServiceImpl   : ------->交易开始
+2021-06-06 08:43:12.638  INFO 5616 --- [p-nio-80-exec-7] c.h.w.service.impl.BusinessServiceImpl   : ------->创建订单开始
+2021-06-06 08:43:12.638  INFO 5616 --- [p-nio-80-exec-7] c.h.w.interceptor.SeataXidInterceptor    : set xid[192.168.1.103:8091:2076666522] to request Header
+2021-06-06 08:43:12.663  INFO 5616 --- [p-nio-80-exec-7] c.h.w.service.impl.BusinessServiceImpl   : ------->创建订单结束
+2021-06-06 08:43:12.663  INFO 5616 --- [p-nio-80-exec-7] c.h.w.service.impl.BusinessServiceImpl   : ------->扣减库存开始
+2021-06-06 08:43:12.664  INFO 5616 --- [p-nio-80-exec-7] c.h.w.interceptor.SeataXidInterceptor    : set xid[192.168.1.103:8091:2076666522] to request Header
+2021-06-06 08:43:12.689  INFO 5616 --- [p-nio-80-exec-7] c.h.w.service.impl.BusinessServiceImpl   : ------->扣减库存结束
+2021-06-06 08:43:12.689  INFO 5616 --- [p-nio-80-exec-7] c.h.w.service.impl.BusinessServiceImpl   : ------->扣减账户开始
+2021-06-06 08:43:12.690  INFO 5616 --- [p-nio-80-exec-7] c.h.w.interceptor.SeataXidInterceptor    : set xid[192.168.1.103:8091:2076666522] to request Header
+2021-06-06 08:43:12.716  INFO 5616 --- [p-nio-80-exec-7] c.h.w.service.impl.BusinessServiceImpl   : ------->扣减账户结束
+2021-06-06 08:43:12.716  INFO 5616 --- [p-nio-80-exec-7] c.h.w.service.impl.BusinessServiceImpl   : ------->校验数据开始
+2021-06-06 08:43:12.717  INFO 5616 --- [p-nio-80-exec-7] c.h.w.interceptor.SeataXidInterceptor    : set xid[192.168.1.103:8091:2076666522] to request Header
+2021-06-06 08:43:12.723  INFO 5616 --- [p-nio-80-exec-7] c.h.w.interceptor.SeataXidInterceptor    : set xid[192.168.1.103:8091:2076666522] to request Header
+2021-06-06 08:43:12.730 DEBUG 5616 --- [p-nio-80-exec-7] i.s.core.rpc.netty.AbstractRpcRemoting   : offer message: xid=192.168.1.103:8091:2076666522,extraData=null
+2021-06-06 08:43:12.730 DEBUG 5616 --- [geSend_TMROLE_1] i.s.core.rpc.netty.AbstractRpcRemoting   : write message:SeataMergeMessage xid=192.168.1.103:8091:2076666522,extraData=null
+, channel:[id: 0xd65e8458, L:/192.168.1.103:62800 - R:/192.168.1.103:8091],active?true,writable?true,isopen?true
+2021-06-06 08:43:12.981 DEBUG 5616 --- [p-nio-80-exec-7] io.seata.core.context.RootContext        : unbind 192.168.1.103:8091:2076666522 
+2021-06-06 08:43:12.981  INFO 5616 --- [p-nio-80-exec-7] i.seata.tm.api.DefaultGlobalTransaction  : [192.168.1.103:8091:2076666522] rollback status: Rollbacked
+
+
+
+# order-service模块
+2021-06-06 08:43:12.640  INFO 11712 --- [nio-8001-exec-4] com.hyd.work.filter.SeataXidFilter       : xid in HttpServletRequest is:[192.168.1.103:8091:2076666522]
+2021-06-06 08:43:12.641 DEBUG 11712 --- [nio-8001-exec-4] io.seata.core.context.RootContext        : bind 192.168.1.103:8091:2076666522
+2021-06-06 08:43:12.641  INFO 11712 --- [nio-8001-exec-4] com.hyd.work.filter.SeataXidFilter       : bind xid[192.168.1.103:8091:2076666522] to RootContext
+2021-06-06 08:43:12.641  INFO 11712 --- [nio-8001-exec-4] c.h.work.service.impl.OrderServiceImpl   : ------->创建订单开始order中
+2021-06-06 08:43:12.645 DEBUG 11712 --- [nio-8001-exec-4] i.s.core.rpc.netty.AbstractRpcRemoting   : offer message: xid=192.168.1.103:8091:2076666522,branchType=AT,resourceId=jdbc:mysql://localhost:3306/seata_order,lockKey=order_tbl:32
+2021-06-06 08:43:12.645 DEBUG 11712 --- [geSend_RMROLE_1] i.s.core.rpc.netty.AbstractRpcRemoting   : write message:SeataMergeMessage xid=192.168.1.103:8091:2076666522,branchType=AT,resourceId=jdbc:mysql://localhost:3306/seata_order,lockKey=order_tbl:32
+, channel:[id: 0xefe82473, L:/192.168.1.103:62926 - R:/192.168.1.103:8091],active?true,writable?true,isopen?true
+2021-06-06 08:43:12.653 DEBUG 11712 --- [nio-8001-exec-4] i.s.r.d.undo.AbstractUndoLogManager      : Flushing UNDO LOG: {"@class":"io.seata.rm.datasource.undo.BranchUndoLog","xid":"192.168.1.103:8091:2076666522","branchId":2076666524,"sqlUndoLogs":["java.util.ArrayList",[{"@class":"io.seata.rm.datasource.undo.SQLUndoLog","sqlType":"INSERT","tableName":"order_tbl","beforeImage":{"@class":"io.seata.rm.datasource.sql.struct.TableRecords$EmptyTableRecords","tableName":"order_tbl","rows":["java.util.ArrayList",[]]},"afterImage":{"@class":"io.seata.rm.datasource.sql.struct.TableRecords","tableName":"order_tbl","rows":["java.util.ArrayList",[{"@class":"io.seata.rm.datasource.sql.struct.Row","fields":["java.util.ArrayList",[{"@class":"io.seata.rm.datasource.sql.struct.Field","name":"id","keyType":"PrimaryKey","type":4,"value":32},{"@class":"io.seata.rm.datasource.sql.struct.Field","name":"user_id","keyType":"NULL","type":12,"value":"user-01"},{"@class":"io.seata.rm.datasource.sql.struct.Field","name":"commodity_code","keyType":"NULL","type":12,"value":"product-2"},{"@class":"io.seata.rm.datasource.sql.struct.Field","name":"count","keyType":"NULL","type":4,"value":1},{"@class":"io.seata.rm.datasource.sql.struct.Field","name":"money","keyType":"NULL","type":4,"value":1}]]}]]}}]]}
+2021-06-06 08:43:12.657 DEBUG 11712 --- [nio-8001-exec-4] i.s.core.rpc.netty.AbstractRpcRemoting   : offer message: xid=192.168.1.103:8091:2076666522,branchId=2076666524,resourceId=null,status=PhaseOne_Done,applicationData=null
+2021-06-06 08:43:12.657 DEBUG 11712 --- [geSend_RMROLE_1] i.s.core.rpc.netty.AbstractRpcRemoting   : write message:SeataMergeMessage xid=192.168.1.103:8091:2076666522,branchId=2076666524,resourceId=null,status=PhaseOne_Done,applicationData=null
+, channel:[id: 0xefe82473, L:/192.168.1.103:62926 - R:/192.168.1.103:8091],active?true,writable?true,isopen?true
+2021-06-06 08:43:12.662  INFO 11712 --- [nio-8001-exec-4] c.h.work.service.impl.OrderServiceImpl   : ------->创建订单结束order中
+2021-06-06 08:43:12.663 DEBUG 11712 --- [nio-8001-exec-4] io.seata.core.context.RootContext        : unbind 192.168.1.103:8091:2076666522 
+2021-06-06 08:43:12.663  INFO 11712 --- [nio-8001-exec-4] com.hyd.work.filter.SeataXidFilter       : unbind xid[192.168.1.103:8091:2076666522] from RootContext
+2021-06-06 08:43:12.894 DEBUG 11712 --- [lector_RMROLE_1] i.s.core.rpc.netty.AbstractRpcRemoting   : io.seata.core.rpc.netty.RmRpcClient@75190b4e msgId:12, body:xid=192.168.1.103:8091:2076666522,branchId=2076666524,branchType=AT,resourceId=jdbc:mysql://localhost:3306/seata_order,applicationData=null
+2021-06-06 08:43:12.894  INFO 11712 --- [tch_RMROLE_1_32] i.s.core.rpc.netty.RmMessageListener     : onMessage:xid=192.168.1.103:8091:2076666522,branchId=2076666524,branchType=AT,resourceId=jdbc:mysql://localhost:3306/seata_order,applicationData=null
+2021-06-06 08:43:12.895  INFO 11712 --- [tch_RMROLE_1_32] io.seata.rm.AbstractRMHandler            : Branch Rollbacking: 192.168.1.103:8091:2076666522 2076666524 jdbc:mysql://localhost:3306/seata_order
+2021-06-06 08:43:12.964  WARN 11712 --- [nfigOperate_2_2] io.seata.config.FileConfiguration        : Could not found property client.undo.data.validation, try to use default value instead.
+2021-06-06 08:43:12.969  INFO 11712 --- [tch_RMROLE_1_32] i.s.r.d.undo.AbstractUndoLogManager      : xid 192.168.1.103:8091:2076666522 branch 2076666524, undo_log deleted with GlobalFinished
+2021-06-06 08:43:12.969  INFO 11712 --- [tch_RMROLE_1_32] io.seata.rm.AbstractRMHandler            : Branch Rollbacked result: PhaseTwo_Rollbacked
+2021-06-06 08:43:12.969 DEBUG 11712 --- [tch_RMROLE_1_32] i.s.core.rpc.netty.RmMessageListener     : branch rollback result:xid=192.168.1.103:8091:2076666522,branchId=2076666524,branchStatus=PhaseTwo_Rollbacked,result code =Success,getMsg =null
+2021-06-06 08:43:12.969 DEBUG 11712 --- [tch_RMROLE_1_32] i.s.core.rpc.netty.AbstractRpcRemoting   : send response:xid=192.168.1.103:8091:2076666522,branchId=2076666524,branchStatus=PhaseTwo_Rollbacked,result code =Success,getMsg =null,channel:[id: 0xefe82473, L:/192.168.1.103:62926 - R:/192.168.1.103:8091]
+
+
+
+# storage-service模块
+2021-06-06 08:43:12.666  INFO 4508 --- [nio-8002-exec-8] com.hyd.work.filter.SeataXidFilter       : xid in HttpServletRequest is:[192.168.1.103:8091:2076666522]
+2021-06-06 08:43:12.666 DEBUG 4508 --- [nio-8002-exec-8] io.seata.core.context.RootContext        : bind 192.168.1.103:8091:2076666522
+2021-06-06 08:43:12.666  INFO 4508 --- [nio-8002-exec-8] com.hyd.work.filter.SeataXidFilter       : bind xid[192.168.1.103:8091:2076666522] to RootContext
+2021-06-06 08:43:12.666  INFO 4508 --- [nio-8002-exec-8] c.h.w.service.impl.StorageServiceImpl    : ------->扣减库存开始storage中
+2021-06-06 08:43:12.671 DEBUG 4508 --- [nio-8002-exec-8] i.s.core.rpc.netty.AbstractRpcRemoting   : offer message: xid=192.168.1.103:8091:2076666522,branchType=AT,resourceId=jdbc:mysql://localhost:3306/seata_storage,lockKey=storage_tbl:2
+2021-06-06 08:43:12.671 DEBUG 4508 --- [geSend_RMROLE_1] i.s.core.rpc.netty.AbstractRpcRemoting   : write message:SeataMergeMessage xid=192.168.1.103:8091:2076666522,branchType=AT,resourceId=jdbc:mysql://localhost:3306/seata_storage,lockKey=storage_tbl:2
+, channel:[id: 0x565684b6, L:/192.168.1.103:62828 - R:/192.168.1.103:8091],active?true,writable?true,isopen?true
+2021-06-06 08:43:12.678 DEBUG 4508 --- [nio-8002-exec-8] i.s.r.d.undo.AbstractUndoLogManager      : Flushing UNDO LOG: {"@class":"io.seata.rm.datasource.undo.BranchUndoLog","xid":"192.168.1.103:8091:2076666522","branchId":2076666527,"sqlUndoLogs":["java.util.ArrayList",[{"@class":"io.seata.rm.datasource.undo.SQLUndoLog","sqlType":"UPDATE","tableName":"storage_tbl","beforeImage":{"@class":"io.seata.rm.datasource.sql.struct.TableRecords","tableName":"storage_tbl","rows":["java.util.ArrayList",[{"@class":"io.seata.rm.datasource.sql.struct.Row","fields":["java.util.ArrayList",[{"@class":"io.seata.rm.datasource.sql.struct.Field","name":"id","keyType":"PrimaryKey","type":4,"value":2},{"@class":"io.seata.rm.datasource.sql.struct.Field","name":"count","keyType":"NULL","type":4,"value":0}]]}]]},"afterImage":{"@class":"io.seata.rm.datasource.sql.struct.TableRecords","tableName":"storage_tbl","rows":["java.util.ArrayList",[{"@class":"io.seata.rm.datasource.sql.struct.Row","fields":["java.util.ArrayList",[{"@class":"io.seata.rm.datasource.sql.struct.Field","name":"id","keyType":"PrimaryKey","type":4,"value":2},{"@class":"io.seata.rm.datasource.sql.struct.Field","name":"count","keyType":"NULL","type":4,"value":-1}]]}]]}}]]}
+2021-06-06 08:43:12.681 DEBUG 4508 --- [nio-8002-exec-8] i.s.core.rpc.netty.AbstractRpcRemoting   : offer message: xid=192.168.1.103:8091:2076666522,branchId=2076666527,resourceId=null,status=PhaseOne_Done,applicationData=null
+2021-06-06 08:43:12.681 DEBUG 4508 --- [geSend_RMROLE_1] i.s.core.rpc.netty.AbstractRpcRemoting   : write message:SeataMergeMessage xid=192.168.1.103:8091:2076666522,branchId=2076666527,resourceId=null,status=PhaseOne_Done,applicationData=null
+, channel:[id: 0x565684b6, L:/192.168.1.103:62828 - R:/192.168.1.103:8091],active?true,writable?true,isopen?true
+2021-06-06 08:43:12.688  INFO 4508 --- [nio-8002-exec-8] c.h.w.service.impl.StorageServiceImpl    : ------->扣减库存结束storage中
+2021-06-06 08:43:12.689 DEBUG 4508 --- [nio-8002-exec-8] io.seata.core.context.RootContext        : unbind 192.168.1.103:8091:2076666522 
+2021-06-06 08:43:12.689  INFO 4508 --- [nio-8002-exec-8] com.hyd.work.filter.SeataXidFilter       : unbind xid[192.168.1.103:8091:2076666522] from RootContext
+2021-06-06 08:43:12.725  INFO 4508 --- [nio-8002-exec-7] com.hyd.work.filter.SeataXidFilter       : xid in HttpServletRequest is:[192.168.1.103:8091:2076666522]
+2021-06-06 08:43:12.725 DEBUG 4508 --- [nio-8002-exec-7] io.seata.core.context.RootContext        : bind 192.168.1.103:8091:2076666522
+2021-06-06 08:43:12.725  INFO 4508 --- [nio-8002-exec-7] com.hyd.work.filter.SeataXidFilter       : bind xid[192.168.1.103:8091:2076666522] to RootContext
+2021-06-06 08:43:12.727 DEBUG 4508 --- [nio-8002-exec-7] io.seata.core.context.RootContext        : unbind 192.168.1.103:8091:2076666522 
+2021-06-06 08:43:12.727  INFO 4508 --- [nio-8002-exec-7] com.hyd.work.filter.SeataXidFilter       : unbind xid[192.168.1.103:8091:2076666522] from RootContext
+2021-06-06 08:43:12.819 DEBUG 4508 --- [lector_RMROLE_1] i.s.core.rpc.netty.AbstractRpcRemoting   : io.seata.core.rpc.netty.RmRpcClient@7d9975ee msgId:11, body:xid=192.168.1.103:8091:2076666522,branchId=2076666527,branchType=AT,resourceId=jdbc:mysql://localhost:3306/seata_storage,applicationData=null
+2021-06-06 08:43:12.820  INFO 4508 --- [tch_RMROLE_1_32] i.s.core.rpc.netty.RmMessageListener     : onMessage:xid=192.168.1.103:8091:2076666522,branchId=2076666527,branchType=AT,resourceId=jdbc:mysql://localhost:3306/seata_storage,applicationData=null
+2021-06-06 08:43:12.820  INFO 4508 --- [tch_RMROLE_1_32] io.seata.rm.AbstractRMHandler            : Branch Rollbacking: 192.168.1.103:8091:2076666522 2076666527 jdbc:mysql://localhost:3306/seata_storage
+2021-06-06 08:43:12.880  WARN 4508 --- [nfigOperate_2_2] io.seata.config.FileConfiguration        : Could not found property client.undo.data.validation, try to use default value instead.
+2021-06-06 08:43:12.885  INFO 4508 --- [tch_RMROLE_1_32] i.s.r.d.undo.AbstractUndoLogManager      : xid 192.168.1.103:8091:2076666522 branch 2076666527, undo_log deleted with GlobalFinished
+2021-06-06 08:43:12.886  INFO 4508 --- [tch_RMROLE_1_32] io.seata.rm.AbstractRMHandler            : Branch Rollbacked result: PhaseTwo_Rollbacked
+2021-06-06 08:43:12.886 DEBUG 4508 --- [tch_RMROLE_1_32] i.s.core.rpc.netty.RmMessageListener     : branch rollback result:xid=192.168.1.103:8091:2076666522,branchId=2076666527,branchStatus=PhaseTwo_Rollbacked,result code =Success,getMsg =null
+2021-06-06 08:43:12.886 DEBUG 4508 --- [tch_RMROLE_1_32] i.s.core.rpc.netty.AbstractRpcRemoting   : send response:xid=192.168.1.103:8091:2076666522,branchId=2076666527,branchStatus=PhaseTwo_Rollbacked,result code =Success,getMsg =null,channel:[id: 0x565684b6, L:/192.168.1.103:62828 - R:/192.168.1.103:8091]
+
+
+
+# account-service模块
+2021-06-06 08:43:12.692  INFO 19292 --- [nio-8003-exec-6] com.hyd.work.filter.SeataXidFilter       : xid in HttpServletRequest is:[192.168.1.103:8091:2076666522]
+2021-06-06 08:43:12.692 DEBUG 19292 --- [nio-8003-exec-6] io.seata.core.context.RootContext        : bind 192.168.1.103:8091:2076666522
+2021-06-06 08:43:12.692  INFO 19292 --- [nio-8003-exec-6] com.hyd.work.filter.SeataXidFilter       : bind xid[192.168.1.103:8091:2076666522] to RootContext
+2021-06-06 08:43:12.693  INFO 19292 --- [nio-8003-exec-6] c.h.w.service.impl.AccountServiceImpl    : ------->扣减账户开始account中
+2021-06-06 08:43:12.697 DEBUG 19292 --- [nio-8003-exec-6] i.s.core.rpc.netty.AbstractRpcRemoting   : offer message: xid=192.168.1.103:8091:2076666522,branchType=AT,resourceId=jdbc:mysql://localhost:3306/seata_account,lockKey=account_tbl:1
+2021-06-06 08:43:12.697 DEBUG 19292 --- [geSend_RMROLE_1] i.s.core.rpc.netty.AbstractRpcRemoting   : write message:SeataMergeMessage xid=192.168.1.103:8091:2076666522,branchType=AT,resourceId=jdbc:mysql://localhost:3306/seata_account,lockKey=account_tbl:1
+, channel:[id: 0x2980bd8f, L:/192.168.1.103:62877 - R:/192.168.1.103:8091],active?true,writable?true,isopen?true
+2021-06-06 08:43:12.705 DEBUG 19292 --- [nio-8003-exec-6] i.s.r.d.undo.AbstractUndoLogManager      : Flushing UNDO LOG: {"@class":"io.seata.rm.datasource.undo.BranchUndoLog","xid":"192.168.1.103:8091:2076666522","branchId":2076666530,"sqlUndoLogs":["java.util.ArrayList",[{"@class":"io.seata.rm.datasource.undo.SQLUndoLog","sqlType":"UPDATE","tableName":"account_tbl","beforeImage":{"@class":"io.seata.rm.datasource.sql.struct.TableRecords","tableName":"account_tbl","rows":["java.util.ArrayList",[{"@class":"io.seata.rm.datasource.sql.struct.Row","fields":["java.util.ArrayList",[{"@class":"io.seata.rm.datasource.sql.struct.Field","name":"id","keyType":"PrimaryKey","type":4,"value":1},{"@class":"io.seata.rm.datasource.sql.struct.Field","name":"money","keyType":"NULL","type":4,"value":98}]]}]]},"afterImage":{"@class":"io.seata.rm.datasource.sql.struct.TableRecords","tableName":"account_tbl","rows":["java.util.ArrayList",[{"@class":"io.seata.rm.datasource.sql.struct.Row","fields":["java.util.ArrayList",[{"@class":"io.seata.rm.datasource.sql.struct.Field","name":"id","keyType":"PrimaryKey","type":4,"value":1},{"@class":"io.seata.rm.datasource.sql.struct.Field","name":"money","keyType":"NULL","type":4,"value":97}]]}]]}}]]}
+2021-06-06 08:43:12.708 DEBUG 19292 --- [nio-8003-exec-6] i.s.core.rpc.netty.AbstractRpcRemoting   : offer message: xid=192.168.1.103:8091:2076666522,branchId=2076666530,resourceId=null,status=PhaseOne_Done,applicationData=null
+2021-06-06 08:43:12.708 DEBUG 19292 --- [geSend_RMROLE_1] i.s.core.rpc.netty.AbstractRpcRemoting   : write message:SeataMergeMessage xid=192.168.1.103:8091:2076666522,branchId=2076666530,resourceId=null,status=PhaseOne_Done,applicationData=null
+, channel:[id: 0x2980bd8f, L:/192.168.1.103:62877 - R:/192.168.1.103:8091],active?true,writable?true,isopen?true
+2021-06-06 08:43:12.714  INFO 19292 --- [nio-8003-exec-6] c.h.w.service.impl.AccountServiceImpl    : ------->扣减账户结束account中
+2021-06-06 08:43:12.715 DEBUG 19292 --- [nio-8003-exec-6] io.seata.core.context.RootContext        : unbind 192.168.1.103:8091:2076666522 
+2021-06-06 08:43:12.715  INFO 19292 --- [nio-8003-exec-6] com.hyd.work.filter.SeataXidFilter       : unbind xid[192.168.1.103:8091:2076666522] from RootContext
+2021-06-06 08:43:12.719  INFO 19292 --- [nio-8003-exec-7] com.hyd.work.filter.SeataXidFilter       : xid in HttpServletRequest is:[192.168.1.103:8091:2076666522]
+2021-06-06 08:43:12.719 DEBUG 19292 --- [nio-8003-exec-7] io.seata.core.context.RootContext        : bind 192.168.1.103:8091:2076666522
+2021-06-06 08:43:12.719  INFO 19292 --- [nio-8003-exec-7] com.hyd.work.filter.SeataXidFilter       : bind xid[192.168.1.103:8091:2076666522] to RootContext
+2021-06-06 08:43:12.722 DEBUG 19292 --- [nio-8003-exec-7] io.seata.core.context.RootContext        : unbind 192.168.1.103:8091:2076666522 
+2021-06-06 08:43:12.722  INFO 19292 --- [nio-8003-exec-7] com.hyd.work.filter.SeataXidFilter       : unbind xid[192.168.1.103:8091:2076666522] from RootContext
+2021-06-06 08:43:12.741 DEBUG 19292 --- [lector_RMROLE_1] i.s.core.rpc.netty.AbstractRpcRemoting   : io.seata.core.rpc.netty.RmRpcClient@5c773314 msgId:10, body:xid=192.168.1.103:8091:2076666522,branchId=2076666530,branchType=AT,resourceId=jdbc:mysql://localhost:3306/seata_account,applicationData=null
+2021-06-06 08:43:12.742  INFO 19292 --- [tch_RMROLE_1_32] i.s.core.rpc.netty.RmMessageListener     : onMessage:xid=192.168.1.103:8091:2076666522,branchId=2076666530,branchType=AT,resourceId=jdbc:mysql://localhost:3306/seata_account,applicationData=null
+2021-06-06 08:43:12.743  INFO 19292 --- [tch_RMROLE_1_32] io.seata.rm.AbstractRMHandler            : Branch Rollbacking: 192.168.1.103:8091:2076666522 2076666530 jdbc:mysql://localhost:3306/seata_account
+2021-06-06 08:43:12.804  WARN 19292 --- [nfigOperate_2_2] io.seata.config.FileConfiguration        : Could not found property client.undo.data.validation, try to use default value instead.
+2021-06-06 08:43:12.809  INFO 19292 --- [tch_RMROLE_1_32] i.s.r.d.undo.AbstractUndoLogManager      : xid 192.168.1.103:8091:2076666522 branch 2076666530, undo_log deleted with GlobalFinished
+2021-06-06 08:43:12.810  INFO 19292 --- [tch_RMROLE_1_32] io.seata.rm.AbstractRMHandler            : Branch Rollbacked result: PhaseTwo_Rollbacked
+2021-06-06 08:43:12.810 DEBUG 19292 --- [tch_RMROLE_1_32] i.s.core.rpc.netty.RmMessageListener     : branch rollback result:xid=192.168.1.103:8091:2076666522,branchId=2076666530,branchStatus=PhaseTwo_Rollbacked,result code =Success,getMsg =null
+2021-06-06 08:43:12.810 DEBUG 19292 --- [tch_RMROLE_1_32] i.s.core.rpc.netty.AbstractRpcRemoting   : send response:xid=192.168.1.103:8091:2076666522,branchId=2076666530,branchStatus=PhaseTwo_Rollbacked,result code =Success,getMsg =null,channel:[id: 0x2980bd8f, L:/192.168.1.103:62877 - R:/192.168.1.103:8091]
+
+
+
+# seata-server日志
+2021-06-06 08:43:12.634 INFO [batchLoggerPrint_1]io.seata.core.rpc.DefaultServerMessageListenerImpl.run:205 -SeataMergeMessage timeout=60000,transactionName=seata-osa-group
+,clientIp:192.168.1.103,vgroup:projectA
+2021-06-06 08:43:12.636 INFO [ServerHandlerThread_1_500]io.seata.server.coordinator.DefaultCore.begin:154 -Successfully begin global transaction xid = 192.168.1.103:8091:2076666522
+2021-06-06 08:43:12.646 INFO [batchLoggerPrint_1]io.seata.core.rpc.DefaultServerMessageListenerImpl.run:205 -SeataMergeMessage xid=192.168.1.103:8091:2076666522,branchType=AT,resourceId=jdbc:mysql://localhost:3306/seata_order,lockKey=order_tbl:32
+,clientIp:192.168.1.103,vgroup:projectA
+2021-06-06 08:43:12.651 INFO [ServerHandlerThread_1_500]io.seata.server.coordinator.DefaultCore.lambda$branchRegister$0:98 -Successfully
+register branch xid = 192.168.1.103:8091:2076666522, branchId = 2076666524
+2021-06-06 08:43:12.658 INFO [batchLoggerPrint_1]io.seata.core.rpc.DefaultServerMessageListenerImpl.run:205 -SeataMergeMessage xid=192.168.1.103:8091:2076666522,branchId=2076666524,resourceId=null,status=PhaseOne_Done,applicationData=null
+,clientIp:192.168.1.103,vgroup:projectA
+2021-06-06 08:43:12.661 INFO [ServerHandlerThread_1_500]io.seata.server.coordinator.DefaultCore.branchReport:126 -Successfully branch report xid = 192.168.1.103:8091:2076666522, branchId = 2076666524
+2021-06-06 08:43:12.672 INFO [batchLoggerPrint_1]io.seata.core.rpc.DefaultServerMessageListenerImpl.run:205 -SeataMergeMessage xid=192.168.1.103:8091:2076666522,branchType=AT,resourceId=jdbc:mysql://localhost:3306/seata_storage,lockKey=storage_tbl:2
+,clientIp:192.168.1.103,vgroup:projectA
+2021-06-06 08:43:12.677 INFO [ServerHandlerThread_1_500]io.seata.server.coordinator.DefaultCore.lambda$branchRegister$0:98 -Successfully
+register branch xid = 192.168.1.103:8091:2076666522, branchId = 2076666527
+2021-06-06 08:43:12.682 INFO [batchLoggerPrint_1]io.seata.core.rpc.DefaultServerMessageListenerImpl.run:205 -SeataMergeMessage xid=192.168.1.103:8091:2076666522,branchId=2076666527,resourceId=null,status=PhaseOne_Done,applicationData=null
+,clientIp:192.168.1.103,vgroup:projectA
+2021-06-06 08:43:12.686 INFO [ServerHandlerThread_1_500]io.seata.server.coordinator.DefaultCore.branchReport:126 -Successfully branch report xid = 192.168.1.103:8091:2076666522, branchId = 2076666527
+2021-06-06 08:43:12.698 INFO [batchLoggerPrint_1]io.seata.core.rpc.DefaultServerMessageListenerImpl.run:205 -SeataMergeMessage xid=192.168.1.103:8091:2076666522,branchType=AT,resourceId=jdbc:mysql://localhost:3306/seata_account,lockKey=account_tbl:1
+,clientIp:192.168.1.103,vgroup:projectA
+2021-06-06 08:43:12.703 INFO [ServerHandlerThread_1_500]io.seata.server.coordinator.DefaultCore.lambda$branchRegister$0:98 -Successfully
+register branch xid = 192.168.1.103:8091:2076666522, branchId = 2076666530
+2021-06-06 08:43:12.709 INFO [batchLoggerPrint_1]io.seata.core.rpc.DefaultServerMessageListenerImpl.run:205 -SeataMergeMessage xid=192.168.1.103:8091:2076666522,branchId=2076666530,resourceId=null,status=PhaseOne_Done,applicationData=null
+,clientIp:192.168.1.103,vgroup:projectA
+2021-06-06 08:43:12.712 INFO [ServerHandlerThread_1_500]io.seata.server.coordinator.DefaultCore.branchReport:126 -Successfully branch report xid = 192.168.1.103:8091:2076666522, branchId = 2076666530
+2021-06-06 08:43:12.733 INFO [batchLoggerPrint_1]io.seata.core.rpc.DefaultServerMessageListenerImpl.run:205 -SeataMergeMessage xid=192.168.1.103:8091:2076666522,extraData=null
+,clientIp:192.168.1.103,vgroup:projectA
+2021-06-06 08:43:12.816 INFO [ServerHandlerThread_1_500]io.seata.server.coordinator.DefaultCore.doGlobalRollback:418 -Successfully rollback branch xid=192.168.1.103:8091:2076666522 branchId=2076666530
+2021-06-06 08:43:12.890 INFO [ServerHandlerThread_1_500]io.seata.server.coordinator.DefaultCore.doGlobalRollback:418 -Successfully rollback branch xid=192.168.1.103:8091:2076666522 branchId=2076666527
+2021-06-06 08:43:12.974 INFO [ServerHandlerThread_1_500]io.seata.server.coordinator.DefaultCore.doGlobalRollback:418 -Successfully rollback branch xid=192.168.1.103:8091:2076666522 branchId=2076666524
+2021-06-06 08:43:12.978 INFO [ServerHandlerThread_1_500]io.seata.server.coordinator.DefaultCore.doGlobalRollback:465 -Successfully rollback global, xid = 192.168.1.103:8091:2076666522
+```
+
+
+
+可以看到日志全局事务提交，回滚的记录，同时看到XID在各个微服务之间传递，发生异常以后，可以回滚，数据库恢复之前状态。
+
+
+
+##### 改造项目
+
+使用spring-cloud-starter-alibaba-seata依赖，自动配置数据源代理，自动配置GlobalTransactionScanner，将conf配置转移到yaml里。
+
+取消DataSourceProxyConfig配置类手动配置数据源代理，去掉启动类注解属性该`(exclude = {DataSourceAutoConfiguration.class)`；
+
+取消自定义GlobalTransactionScanner配置初始化；
+
+将seata client端conf配置文件内容配到application.yaml。注意：disableGlobalTransaction=false需要配置到conf，yaml里配置目前版本有bug不生效)
+
+application.yaml
+
+```yaml
+# 使用yaml配置 seata conf配置文件 -----start----|
+seata:
+  client:
+    support:
+      spring:
+        datasource-autoproxy: true # 数据源自动代理 默认 true
+  registry:
+    nacos:
+      server-addr: localhost:8848
+      namespace: ""
+      cluster: default
+  tx-service-group: storage_group
+  service:
+    vgroup-mapping: default
+    grouplist: 127.0.0.1:8091
+    enable-degrade: false
+#    disable-global-transaction: false # 默认 false
+# 使用yaml配置 seata conf配置文件 -----end-----|
+```
+
+file.conf
+
+```
+service {
+  disableGlobalTransaction = false
+}
+```
+
+测试结果略
+
+
+
+---
+
+## 【分布式】全局唯一ID生成策略
+
+//todo
 
 ---
 

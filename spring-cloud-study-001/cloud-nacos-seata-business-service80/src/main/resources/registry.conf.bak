@@ -1,0 +1,15 @@
+registry {
+  type = "nacos"
+  nacos {
+	# nacos服务地址
+    serverAddr = "localhost:8848"
+    namespace = ""
+    cluster = "default"
+  }
+}
+config {
+  type = "file"
+  file {
+    name = "file.conf"
+  }
+}

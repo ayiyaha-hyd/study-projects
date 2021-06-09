@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans.xsd"
+       xmlns:p="http://www.springframework.org/schema/p"
+>
+
+    <beans>
+        <!--        <bean id="userDao" class="com.hyd.dao.impl.UserDaoImpl" scope="singleton" init-method="init" destroy-method="destroy"/>-->
+        <!--        <bean id="userDao" class="com.hyd.factory.StaticFactory" factory-method="getUserDao"/>-->
+        <!--        <bean id="factory" class="com.hyd.factory.StaticFactory"/>-->
+        <!--        <bean id="userDao" factory-bean="factory" factory-method="getUserDao"/>-->
+        <bean id="userDao" class="com.hyd.dao.impl.UserDaoImpl">
+            <property name="strList">
+                <list>
+                    <value>u1</value>
+                    <value>u2</value>
+                    <value>u3</value>
+                </list>
+            </property>
+            <property name="userMap">
+                <map>
+                    <entry key="u1" value-ref="user1"/>
+                    <entry key="u12" value-ref="user1"/>
+                    <entry key="u2" value-ref="user2"/>
+                </map>
+            </property>
+            <property name="properties">
+                <props>
+                    <prop key="p1">11</prop>
+                    <prop key="p2">8</prop>
+                    <prop key="p3">0</prop>
+                </props>
+            </property>
+        </bean>
+<!--        <bean id="userService" class="com.hyd.service.impl.UserServiceImpl">-->
+<!--            <property name="userDao" ref="userDao"/>-->
+<!--        </bean>-->
+        <bean id="userService" class="com.hyd.service.impl.UserServiceImpl" p:userDao-ref="userDao"/>
+        <bean id="user1" class="com.hyd.domain.User">
+            <property name="username" value="zhangsan"/>
+            <property name="age" value="18"/>
+        </bean>
+        <bean id="user2" class="com.hyd.domain.User">
+            <property name="username" value="lisi"/>
+            <property name="age" value="21"/>
+        </bean>
+    </beans>
+<!--    <import resource="applicationContext-user.xml"></import>-->
+</beans>

@@ -48,3 +48,8 @@ spring-cloud-study-001/cloud-nacos-seata-business-service80/target/
 spring-study/spring-mvc/target/
 spring-study/spring-ioc-anno/target/
 spring-study/spring-ioc-01/target/
+spring-study/spring-aop/target/
+spring-study/spring-interceptor/out/
+spring-study/spring-interceptor/target/
+spring-study/spring-mvc-test/out/
+spring-study/spring-mvc-test/target/

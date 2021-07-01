@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE configuration
+        PUBLIC "-//mybatis.org//DTD Config 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-config.dtd">
+<configuration>
+    <properties resource="jdbc.properties"></properties>
+
+    <typeAliases>
+        <typeAlias type="com.hyd.domain.User" alias="user"></typeAlias>
+    </typeAliases>
+
+    <typeHandlers>
+        <typeHandler handler="com.hyd.handler.DateTypeHandler"></typeHandler>
+    </typeHandlers>
+
+    <plugins>
+        <plugin interceptor="com.github.pagehelper.PageHelper">
+            <property name="dialect" value="mysql"/>
+        </plugin>
+    </plugins>
+
+    <environments default="dev">
+        <environment id="dev">
+            <transactionManager type="JDBC"></transactionManager>
+            <dataSource type="POOLED">
+                <property name="driver" value="${jdbc.driver}"/>
+                <property name="url" value="${jdbc.url}"/>
+                <property name="username" value="${jdbc.username}"/>
+                <property name="password" value="${jdbc.password}"/>
+            </dataSource>
+        </environment>
+    </environments>
+
+    <mappers>
+        <mapper resource="com/hyd/mapper/userMapper.xml"></mapper>
+        <mapper resource="com/hyd/mapper/orderMapper.xml"></mapper>
+    </mappers>
+
+</configuration>
